@@ -42,7 +42,12 @@ func (s *service) CreateComment(comment entity.Comment) (*entity.Comment, *ierr.
 		return nil, ierr.NewInternalServerError("error creating comment")
 	}
 
-	return &comment, nil
+	newComment, err := s.commentRepo.FindCommentByID(comment.ID)
+	if err != nil {
+		return nil, ierr.NewInternalServerError("error fetching newly created comment")
+	}
+
+	return newComment, nil
 }
 
 func (s *service) FindCommentByID(id uint) (*entity.Comment, *ierr.RestErr) {

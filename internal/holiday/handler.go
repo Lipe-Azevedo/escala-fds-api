@@ -37,11 +37,13 @@ func (h *Handler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, ierr.NewBadRequestError(err.Error()))
 		return
 	}
-	date, err := time.Parse("2006-01-02", req.Date)
+
+	date, err := time.ParseInLocation("2006-01-02", req.Date, time.UTC)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, ierr.NewBadRequestError("invalid date format, use YYYY-MM-DD"))
 		return
 	}
+
 	holiday := entity.Holiday{Name: req.Name, Date: date, Type: req.Type}
 	newHoliday, errSvc := h.service.CreateHoliday(holiday)
 	if errSvc != nil {
@@ -81,11 +83,13 @@ func (h *Handler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, ierr.NewBadRequestError(err.Error()))
 		return
 	}
-	date, err := time.Parse("2006-01-02", req.Date)
+
+	date, err := time.ParseInLocation("2006-01-02", req.Date, time.UTC)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, ierr.NewBadRequestError("invalid date format, use YYYY-MM-DD"))
 		return
 	}
+
 	holidayData := entity.Holiday{Name: req.Name, Date: date, Type: req.Type}
 	updatedHoliday, errSvc := h.service.UpdateHoliday(uint(id), holidayData)
 	if errSvc != nil {
