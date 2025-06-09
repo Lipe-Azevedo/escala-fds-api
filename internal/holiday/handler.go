@@ -38,7 +38,7 @@ func (h *Handler) Create(c *gin.Context) {
 		return
 	}
 
-	date, err := time.ParseInLocation("2006-01-02", req.Date, time.UTC)
+	date, err := time.Parse("2006-01-02", req.Date)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, ierr.NewBadRequestError("invalid date format, use YYYY-MM-DD"))
 		return
@@ -54,9 +54,36 @@ func (h *Handler) Create(c *gin.Context) {
 }
 
 func (h *Handler) FindAll(c *gin.Context) {
-	holidays, err := h.service.FindAllHolidays()
+	startDateStr := c.Query("startDate")
+	endDateStr := c.Query("endDate")
+	if startDateStr == "" || endDateStr == "" {
+		holidays, err := h.service.FindAllHolidays()
+		if err != nil {
+			c.JSON(err.Code, err)
+			return
+		}
+		var res []HolidayResponse
+		for _, holiday := range holidays {
+			res = append(res, ToHolidayResponse(&holiday))
+		}
+		c.JSON(http.StatusOK, res)
+		return
+	}
+
+	startDate, err := time.Parse("2006-01-02", startDateStr)
 	if err != nil {
-		c.JSON(err.Code, err)
+		c.JSON(http.StatusBadRequest, ierr.NewBadRequestError("invalid startDate format"))
+		return
+	}
+	endDate, err := time.Parse("2006-01-02", endDateStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ierr.NewBadRequestError("invalid endDate format"))
+		return
+	}
+
+	holidays, errSvc := h.service.FindHolidaysByDateRange(startDate, endDate)
+	if errSvc != nil {
+		c.JSON(errSvc.Code, errSvc)
 		return
 	}
 	var res []HolidayResponse
@@ -84,7 +111,7 @@ func (h *Handler) Update(c *gin.Context) {
 		return
 	}
 
-	date, err := time.ParseInLocation("2006-01-02", req.Date, time.UTC)
+	date, err := time.Parse("2006-01-02", req.Date)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, ierr.NewBadRequestError("invalid date format, use YYYY-MM-DD"))
 		return

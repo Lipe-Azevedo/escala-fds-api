@@ -19,7 +19,7 @@ func NewMySQLConnection() (*gorm.DB, error) {
 	port := os.Getenv("DB_PORT")
 	dbname := os.Getenv("DB_NAME")
 
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=UTC",
 		user, password, host, port, dbname)
 
 	logLevel := gormlogger.Silent
