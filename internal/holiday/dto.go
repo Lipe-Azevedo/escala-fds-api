@@ -29,7 +29,7 @@ func ToHolidayResponse(holiday *entity.Holiday) HolidayResponse {
 	return HolidayResponse{
 		ID:        holiday.ID,
 		Name:      holiday.Name,
-		Date:      holiday.Date.Format("2006-01-02"),
+		Date:      holiday.Date.Format(constants.ApiDateLayout),
 		Type:      holiday.Type,
 		CreatedAt: holiday.CreatedAt.Format(constants.ApiTimestampLayout),
 	}

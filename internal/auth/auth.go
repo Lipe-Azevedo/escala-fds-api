@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"escala-fds-api/internal/constants"
 	"escala-fds-api/pkg/ierr"
 	"fmt"
 	"net/http"
@@ -63,14 +64,14 @@ func Middleware() gin.HandlerFunc {
 			return
 		}
 
-		c.Set("userId", uint(idFloat))
-		c.Set("userType", userType)
+		c.Set(constants.JwtUserIdKey, uint(idFloat))
+		c.Set(constants.JwtUserTypeKey, userType)
 		c.Next()
 	}
 }
 
 func GetUserIDFromContext(c *gin.Context) (uint, *ierr.RestErr) {
-	id, ok := c.Get("userId")
+	id, ok := c.Get(constants.JwtUserIdKey)
 	if !ok {
 		return 0, ierr.NewInternalServerError("user id not found in context")
 	}
@@ -82,7 +83,7 @@ func GetUserIDFromContext(c *gin.Context) (uint, *ierr.RestErr) {
 }
 
 func GetUserTypeFromContext(c *gin.Context) (string, *ierr.RestErr) {
-	userType, ok := c.Get("userType")
+	userType, ok := c.Get(constants.JwtUserTypeKey)
 	if !ok {
 		return "", ierr.NewInternalServerError("user type not found in context")
 	}

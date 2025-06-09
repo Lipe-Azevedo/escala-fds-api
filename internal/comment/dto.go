@@ -32,7 +32,7 @@ func ToCommentResponse(comment *entity.Comment) CommentResponse {
 		Collaborator: user.ToUserResponse(&comment.Collaborator),
 		Author:       user.ToUserResponse(&comment.Author),
 		Text:         comment.Text,
-		Date:         comment.Date.Format("2006-01-02"),
+		Date:         comment.Date.Format(constants.ApiDateLayout),
 		CreatedAt:    comment.CreatedAt.Format(constants.ApiTimestampLayout),
 		UpdatedAt:    comment.UpdatedAt.Format(constants.ApiTimestampLayout),
 	}
