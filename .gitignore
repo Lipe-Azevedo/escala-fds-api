@@ -1,0 +1,47 @@
+# Environment variables
+# Contains secrets and should never be committed.
+.env
+.env.*
+.env.local
+
+# Docker data volume for the database
+mysql_data/
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Compiled Go binaries
+# Replace 'escala-fds-api' if your executable name is different
+escala-fds-api
+
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Profile reports
+*.prof
+*.pprof
+
+# Output of the go coverage tool
+*.out
+coverage.txt
+
+# Go dependency directory
+vendor/
+
+# IDE / Editor configuration
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+
