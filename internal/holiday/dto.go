@@ -1,8 +1,8 @@
 package holiday
 
 import (
+	"escala-fds-api/internal/constants"
 	"escala-fds-api/internal/entity"
-	"time"
 )
 
 type CreateHolidayRequest struct {
@@ -22,7 +22,7 @@ type HolidayResponse struct {
 	Name      string             `json:"name"`
 	Date      string             `json:"date"`
 	Type      entity.HolidayType `json:"type"`
-	CreatedAt time.Time          `json:"createdAt"`
+	CreatedAt string             `json:"createdAt"`
 }
 
 func ToHolidayResponse(holiday *entity.Holiday) HolidayResponse {
@@ -31,6 +31,6 @@ func ToHolidayResponse(holiday *entity.Holiday) HolidayResponse {
 		Name:      holiday.Name,
 		Date:      holiday.Date.Format("2006-01-02"),
 		Type:      holiday.Type,
-		CreatedAt: holiday.CreatedAt,
+		CreatedAt: holiday.CreatedAt.Format(constants.ApiTimestampLayout),
 	}
 }

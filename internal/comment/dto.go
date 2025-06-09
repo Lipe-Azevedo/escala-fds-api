@@ -1,9 +1,9 @@
 package comment
 
 import (
+	"escala-fds-api/internal/constants"
 	"escala-fds-api/internal/entity"
 	"escala-fds-api/internal/user"
-	"time"
 )
 
 type CreateCommentRequest struct {
@@ -22,8 +22,8 @@ type CommentResponse struct {
 	Author       user.UserResponse `json:"author"`
 	Text         string            `json:"text"`
 	Date         string            `json:"date"`
-	CreatedAt    time.Time         `json:"createdAt"`
-	UpdatedAt    time.Time         `json:"updatedAt"`
+	CreatedAt    string            `json:"createdAt"`
+	UpdatedAt    string            `json:"updatedAt"`
 }
 
 func ToCommentResponse(comment *entity.Comment) CommentResponse {
@@ -33,7 +33,7 @@ func ToCommentResponse(comment *entity.Comment) CommentResponse {
 		Author:       user.ToUserResponse(&comment.Author),
 		Text:         comment.Text,
 		Date:         comment.Date.Format("2006-01-02"),
-		CreatedAt:    comment.CreatedAt,
-		UpdatedAt:    comment.UpdatedAt,
+		CreatedAt:    comment.CreatedAt.Format(constants.ApiTimestampLayout),
+		UpdatedAt:    comment.UpdatedAt.Format(constants.ApiTimestampLayout),
 	}
 }

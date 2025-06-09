@@ -1,6 +1,7 @@
 package user
 
 import (
+	"escala-fds-api/internal/constants"
 	"escala-fds-api/internal/entity"
 )
 
@@ -53,6 +54,8 @@ type UserResponse struct {
 	WeekdayOff        entity.WeekdayName    `json:"weekdayOff,omitempty"`
 	InitialWeekendOff entity.WeekendDayName `json:"initialWeekendOff,omitempty"`
 	SuperiorID        *uint                 `json:"superiorId,omitempty"`
+	CreatedAt         string                `json:"createdAt"`
+	UpdatedAt         string                `json:"updatedAt"`
 }
 
 type LoginResponse struct {
@@ -74,5 +77,7 @@ func ToUserResponse(user *entity.User) UserResponse {
 		WeekdayOff:        user.WeekdayOff,
 		InitialWeekendOff: user.InitialWeekendOff,
 		SuperiorID:        user.SuperiorID,
+		CreatedAt:         user.CreatedAt.Format(constants.ApiTimestampLayout),
+		UpdatedAt:         user.UpdatedAt.Format(constants.ApiTimestampLayout),
 	}
 }

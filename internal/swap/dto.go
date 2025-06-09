@@ -1,10 +1,19 @@
 package swap
 
 import (
+	"escala-fds-api/internal/constants"
 	"escala-fds-api/internal/entity"
 	"escala-fds-api/internal/user"
 	"time"
 )
+
+func formatTimePointer(t *time.Time) *string {
+	if t == nil {
+		return nil
+	}
+	formatted := t.Format(constants.ApiTimestampLayout)
+	return &formatted
+}
 
 type CreateSwapRequest struct {
 	InvolvedCollaboratorID *uint            `json:"involvedCollaboratorId"`
@@ -30,8 +39,8 @@ type SwapResponse struct {
 	Reason               string             `json:"reason"`
 	Status               entity.SwapStatus  `json:"status"`
 	ApprovedBy           *user.UserResponse `json:"approvedBy,omitempty"`
-	CreatedAt            time.Time          `json:"createdAt"`
-	ApprovedAt           *time.Time         `json:"approvedAt,omitempty"`
+	CreatedAt            string             `json:"createdAt"`
+	ApprovedAt           *string            `json:"approvedAt,omitempty"`
 }
 
 func ToSwapResponse(swap *entity.Swap) SwapResponse {
@@ -58,7 +67,7 @@ func ToSwapResponse(swap *entity.Swap) SwapResponse {
 		Reason:               swap.Reason,
 		Status:               swap.Status,
 		ApprovedBy:           approvedBy,
-		CreatedAt:            swap.CreatedAt,
-		ApprovedAt:           swap.ApprovedAt,
+		CreatedAt:            swap.CreatedAt.Format(constants.ApiTimestampLayout),
+		ApprovedAt:           formatTimePointer(swap.ApprovedAt),
 	}
 }
