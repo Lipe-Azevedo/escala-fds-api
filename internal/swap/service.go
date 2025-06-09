@@ -38,7 +38,16 @@ func (s *service) CreateSwap(swap entity.Swap, requesterID uint) (*entity.Swap, 
 	if err := s.swapRepo.CreateSwap(&swap); err != nil {
 		return nil, ierr.NewInternalServerError("error creating swap request")
 	}
-	return &swap, nil
+
+	// ALTERAÇÃO CRÍTICA AQUI:
+	// Em vez de retornar o objeto em memória, buscamos o objeto recém-criado
+	// para que o GORM carregue as relações (como o Requester).
+	newSwap, err := s.swapRepo.FindSwapByID(swap.ID)
+	if err != nil {
+		return nil, ierr.NewInternalServerError("error fetching newly created swap")
+	}
+
+	return newSwap, nil
 }
 
 func (s *service) ApproveOrRejectSwap(swapID, approverID uint, newStatus entity.SwapStatus) (*entity.Swap, *ierr.RestErr) {
