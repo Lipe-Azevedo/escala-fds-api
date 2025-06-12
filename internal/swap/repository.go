@@ -10,7 +10,7 @@ import (
 type Repository interface {
 	CreateSwap(swap *entity.Swap) error
 	FindSwapByID(id uint) (*entity.Swap, error)
-	FindSwapsByUserID(userID uint) ([]entity.Swap, error)
+	FindSwapsByUserID(userID uint, statusFilter string) ([]entity.Swap, error)
 	FindApprovedSwapsForDateRange(userID uint, startDate, endDate time.Time) ([]entity.Swap, error)
 	FindAllSwaps() ([]entity.Swap, error)
 	UpdateSwap(swap *entity.Swap) error
@@ -37,15 +37,19 @@ func (r *repository) FindSwapByID(id uint) (*entity.Swap, error) {
 	return &swap, nil
 }
 
-func (r *repository) FindSwapsByUserID(userID uint) ([]entity.Swap, error) {
+func (r *repository) FindSwapsByUserID(userID uint, statusFilter string) ([]entity.Swap, error) {
 	var swaps []entity.Swap
-	err := r.db.
+	query := r.db.
 		Preload("Requester").
 		Preload("InvolvedCollaborator").
 		Preload("ApprovedBy").
-		Where("requester_id = ? OR involved_collaborator_id = ?", userID, userID).
-		Order("created_at desc").
-		Find(&swaps).Error
+		Where("requester_id = ? OR involved_collaborator_id = ?", userID, userID)
+
+	if statusFilter != "" {
+		query = query.Where("status = ?", statusFilter)
+	}
+
+	err := query.Order("created_at desc").Find(&swaps).Error
 	return swaps, err
 }
 
@@ -64,7 +68,7 @@ func (r *repository) FindApprovedSwapsForDateRange(userID uint, startDate, endDa
 func (r *repository) FindAllSwaps() ([]entity.Swap, error) {
 	var swaps []entity.Swap
 	err := r.db.Preload("Requester").Order("created_at desc").Find(&swaps).Error
-	return swaps, err // <-- CORRIGIDO AQUI (e em outras funções para garantir)
+	return swaps, err
 }
 
 func (r *repository) UpdateSwap(swap *entity.Swap) error {

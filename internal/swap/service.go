@@ -13,7 +13,7 @@ type Service interface {
 	CreateSwap(swap entity.Swap, requesterID uint) (*entity.Swap, *ierr.RestErr)
 	ApproveOrRejectSwap(swapID, approverID uint, newStatus entity.SwapStatus) (*entity.Swap, *ierr.RestErr)
 	FindSwapByID(id uint) (*entity.Swap, *ierr.RestErr)
-	FindSwapsForUser(userID uint) ([]entity.Swap, *ierr.RestErr)
+	FindSwapsForUser(userID uint, statusFilter string) ([]entity.Swap, *ierr.RestErr)
 	FindAllSwaps() ([]entity.Swap, *ierr.RestErr)
 	DeleteSwap(id, requesterID uint, requesterType entity.UserType) *ierr.RestErr
 }
@@ -27,11 +27,10 @@ func NewService(swapRepo Repository, userRepo user.Repository) Service {
 	return &service{swapRepo: swapRepo, userRepo: userRepo}
 }
 
-// Mapa para obter horas de início e fim dos turnos para cálculo de intervalo.
 var shiftTimings = map[entity.ShiftName]struct{ start, end int }{
 	entity.ShiftMorning:   {start: 6, end: 14},
 	entity.ShiftAfternoon: {start: 14, end: 22},
-	entity.ShiftNight:     {start: 22, end: 30}, // Fim às 6h do dia seguinte (24 + 6)
+	entity.ShiftNight:     {start: 22, end: 30},
 }
 
 func (s *service) CreateSwap(swap entity.Swap, requesterID uint) (*entity.Swap, *ierr.RestErr) {
@@ -41,11 +40,9 @@ func (s *service) CreateSwap(swap entity.Swap, requesterID uint) (*entity.Swap, 
 	if err := s.validateSwap(swap); err != nil {
 		return nil, err
 	}
-
 	if err := s.swapRepo.CreateSwap(&swap); err != nil {
 		return nil, ierr.NewInternalServerError("error creating swap request")
 	}
-
 	newSwap, err := s.swapRepo.FindSwapByID(swap.ID)
 	if err != nil {
 		return nil, ierr.NewInternalServerError("error fetching newly created swap")
@@ -169,8 +166,8 @@ func (s *service) FindSwapByID(id uint) (*entity.Swap, *ierr.RestErr) {
 	return swap, nil
 }
 
-func (s *service) FindSwapsForUser(userID uint) ([]entity.Swap, *ierr.RestErr) {
-	swaps, err := s.swapRepo.FindSwapsByUserID(userID)
+func (s *service) FindSwapsForUser(userID uint, statusFilter string) ([]entity.Swap, *ierr.RestErr) {
+	swaps, err := s.swapRepo.FindSwapsByUserID(userID, statusFilter)
 	if err != nil {
 		return nil, ierr.NewInternalServerError("error fetching swaps for user")
 	}
@@ -226,7 +223,6 @@ func isDayOff(date time.Time, u *entity.User) bool {
 			firstWeekendOffDay = time.Saturday
 		}
 
-		// Encontra a primeira ocorrência da folga inicial a partir da data de criação do usuário
 		firstOccurrence := u.CreatedAt
 		for firstOccurrence.Weekday() != firstWeekendOffDay {
 			firstOccurrence = firstOccurrence.AddDate(0, 0, 1)

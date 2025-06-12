@@ -45,12 +45,12 @@ func (h *Handler) Create(c *gin.Context) {
 		return
 	}
 
-	originalDate, err := time.Parse("2006-01-02", req.OriginalDate)
+	originalDate, err := time.ParseInLocation("2006-01-02", req.OriginalDate, time.UTC)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, ierr.NewBadRequestError("invalid originalDate format"))
 		return
 	}
-	newDate, err := time.Parse("2006-01-02", req.NewDate)
+	newDate, err := time.ParseInLocation("2006-01-02", req.NewDate, time.UTC)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, ierr.NewBadRequestError("invalid newDate format"))
 		return
@@ -88,7 +88,9 @@ func (h *Handler) FindAll(c *gin.Context) {
 
 func (h *Handler) FindByUser(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
-	swaps, err := h.service.FindSwapsForUser(uint(id))
+	statusFilter := c.Query("status")
+
+	swaps, err := h.service.FindSwapsForUser(uint(id), statusFilter)
 	if err != nil {
 		c.JSON(err.Code, err)
 		return
