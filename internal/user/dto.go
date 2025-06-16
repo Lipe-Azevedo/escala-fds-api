@@ -10,7 +10,7 @@ type CreateUserRequest struct {
 	Password          string                `json:"password" binding:"required,min=6"`
 	FirstName         string                `json:"firstName" binding:"required"`
 	LastName          string                `json:"lastName" binding:"required"`
-	PhoneNumber       string                `json:"phoneNumber"`
+	PhoneNumber       string                `json:"phoneNumber" binding:"required"`
 	UserType          entity.UserType       `json:"userType" binding:"required"`
 	Team              entity.TeamName       `json:"team"`
 	Position          entity.PositionName   `json:"position"`

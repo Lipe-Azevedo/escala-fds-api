@@ -48,7 +48,7 @@ type User struct {
 	Password          string         `gorm:"type:varchar(255);not null"`
 	FirstName         string         `gorm:"type:varchar(50);not null"`
 	LastName          string         `gorm:"type:varchar(50);not null"`
-	PhoneNumber       string         `gorm:"type:varchar(20)"`
+	PhoneNumber       string         `gorm:"type:varchar(20):not null"`
 	UserType          UserType       `gorm:"type:varchar(20);not null"`
 	Team              TeamName       `gorm:"type:varchar(50)"`
 	Position          PositionName   `gorm:"type:varchar(50)"`
