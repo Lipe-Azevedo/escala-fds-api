@@ -31,7 +31,7 @@ func (r *repository) CreateSwap(swap *entity.Swap) error {
 
 func (r *repository) FindSwapByID(id uint) (*entity.Swap, error) {
 	var swap entity.Swap
-	if err := r.db.Preload("Requester").Preload("InvolvedCollaborator").Preload("ApprovedBy").First(&swap, id).Error; err != nil {
+	if err := r.db.First(&swap, id).Error; err != nil {
 		return nil, err
 	}
 	return &swap, nil
@@ -40,9 +40,6 @@ func (r *repository) FindSwapByID(id uint) (*entity.Swap, error) {
 func (r *repository) FindSwapsByUserID(userID uint, statusFilter string) ([]entity.Swap, error) {
 	var swaps []entity.Swap
 	query := r.db.
-		Preload("Requester").
-		Preload("InvolvedCollaborator").
-		Preload("ApprovedBy").
 		Where("requester_id = ? OR involved_collaborator_id = ?", userID, userID)
 
 	if statusFilter != "" {
@@ -58,8 +55,8 @@ func (r *repository) FindApprovedSwapsForDateRange(userID uint, startDate, endDa
 	err := r.db.
 		Where("status = ?", entity.StatusApproved).
 		Where(
-			r.db.Where("requester_id = ? AND new_date BETWEEN ? AND ?", userID, startDate, endDate).
-				Or("involved_collaborator_id = ? AND original_date BETWEEN ? AND ?", userID, startDate, endDate),
+			r.db.Where("requester_id = ? AND (original_date BETWEEN ? AND ? OR new_date BETWEEN ? AND ?)", userID, startDate, endDate, startDate, endDate).
+				Or("involved_collaborator_id = ? AND (original_date BETWEEN ? AND ? OR new_date BETWEEN ? AND ?)", userID, startDate, endDate, startDate, endDate),
 		).
 		Find(&swaps).Error
 	return swaps, err
@@ -67,7 +64,7 @@ func (r *repository) FindApprovedSwapsForDateRange(userID uint, startDate, endDa
 
 func (r *repository) FindAllSwaps() ([]entity.Swap, error) {
 	var swaps []entity.Swap
-	err := r.db.Preload("Requester").Order("created_at desc").Find(&swaps).Error
+	err := r.db.Order("created_at desc").Find(&swaps).Error
 	return swaps, err
 }
 

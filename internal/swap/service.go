@@ -155,50 +155,29 @@ func (s *service) buildSingleResponse(id uint) (*SwapResponse, *ierr.RestErr) {
 }
 
 func (s *service) buildResponseList(swaps []entity.Swap) ([]SwapResponse, *ierr.RestErr) {
-	var userIDs []uint
-	userIDsSet := make(map[uint]bool)
-
-	for _, swap := range swaps {
-		if !userIDsSet[swap.RequesterID] {
-			userIDs = append(userIDs, swap.RequesterID)
-			userIDsSet[swap.RequesterID] = true
-		}
-		if swap.InvolvedCollaboratorID != nil && !userIDsSet[*swap.InvolvedCollaboratorID] {
-			userIDs = append(userIDs, *swap.InvolvedCollaboratorID)
-			userIDsSet[*swap.InvolvedCollaboratorID] = true
-		}
-		if swap.ApprovedByID != nil && !userIDsSet[*swap.ApprovedByID] {
-			userIDs = append(userIDs, *swap.ApprovedByID)
-			userIDsSet[*swap.ApprovedByID] = true
-		}
-	}
-
-	users, err := s.userRepo.FindUsersByIDs(userIDs)
-	if err != nil {
-		return nil, ierr.NewInternalServerError("error fetching user data for swaps")
-	}
-
-	userMap := make(map[uint]*entity.User)
-	for i := range users {
-		userMap[users[i].ID] = &users[i]
-	}
-
 	var responses []SwapResponse
+
 	for _, swap := range swaps {
-		requester := userMap[swap.RequesterID]
+		requester, err := s.userRepo.FindUserByID(swap.RequesterID)
+		if err != nil {
+			// Se o usuário requisitante não for encontrado (ex: deletado), pula esta troca.
+			continue
+		}
+
 		var involved *entity.User
 		if swap.InvolvedCollaboratorID != nil {
-			involved = userMap[*swap.InvolvedCollaboratorID]
-		}
-		var approver *entity.User
-		if swap.ApprovedByID != nil {
-			approver = userMap[*swap.ApprovedByID]
+			involved, _ = s.userRepo.FindUserByID(*swap.InvolvedCollaboratorID)
 		}
 
-		if requester != nil {
-			responses = append(responses, s.toResponse(&swap, requester, involved, approver))
+		var approver *entity.User
+		if swap.ApprovedByID != nil {
+			approver, _ = s.userRepo.FindUserByID(*swap.ApprovedByID)
 		}
+
+		response := s.toResponse(&swap, requester, involved, approver)
+		responses = append(responses, response)
 	}
+
 	return responses, nil
 }
 

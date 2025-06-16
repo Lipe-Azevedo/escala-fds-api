@@ -30,7 +30,7 @@ func (r *repository) CreateComment(comment *entity.Comment) error {
 
 func (r *repository) FindCommentByID(id uint) (*entity.Comment, error) {
 	var comment entity.Comment
-	if err := r.db.Preload("Collaborator").Preload("Author").First(&comment, id).Error; err != nil {
+	if err := r.db.First(&comment, id).Error; err != nil {
 		return nil, err
 	}
 	return &comment, nil
@@ -38,9 +38,7 @@ func (r *repository) FindCommentByID(id uint) (*entity.Comment, error) {
 
 func (r *repository) Find(filters Filters) ([]entity.Comment, error) {
 	var comments []entity.Comment
-	query := r.db.
-		Preload("Collaborator").
-		Preload("Author").
+	query := r.db.Table("comments").
 		Joins("JOIN users AS collaborator ON collaborator.id = comments.collaborator_id")
 
 	if filters.CollaboratorID != "" {
@@ -70,7 +68,6 @@ func (r *repository) Find(filters Filters) ([]entity.Comment, error) {
 func (r *repository) FindCommentsForUserInDateRange(userID uint, startDate, endDate time.Time) ([]entity.Comment, error) {
 	var comments []entity.Comment
 	err := r.db.
-		Preload("Author").
 		Where("collaborator_id = ? AND date BETWEEN ? AND ?", userID, startDate, endDate).
 		Order("date desc").
 		Find(&comments).Error

@@ -28,19 +28,19 @@ func (r *repository) Create(certificate *entity.Certificate) error {
 
 func (r *repository) FindByID(id uint) (*entity.Certificate, error) {
 	var certificate entity.Certificate
-	err := r.db.Preload("Collaborator").Preload("ApprovedBy").First(&certificate, id).Error
+	err := r.db.First(&certificate, id).Error
 	return &certificate, err
 }
 
 func (r *repository) FindAll() ([]entity.Certificate, error) {
 	var certificates []entity.Certificate
-	err := r.db.Preload("Collaborator").Order("created_at desc").Find(&certificates).Error
+	err := r.db.Order("created_at desc").Find(&certificates).Error
 	return certificates, err
 }
 
 func (r *repository) FindByCollaboratorID(collaboratorID uint) ([]entity.Certificate, error) {
 	var certificates []entity.Certificate
-	err := r.db.Preload("Collaborator").Preload("ApprovedBy").Where("collaborator_id = ?", collaboratorID).Order("start_date desc").Find(&certificates).Error
+	err := r.db.Where("collaborator_id = ?", collaboratorID).Order("start_date desc").Find(&certificates).Error
 	return certificates, err
 }
 

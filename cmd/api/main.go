@@ -7,15 +7,32 @@ import (
 	"escala-fds-api/internal/plataform/database"
 	"escala-fds-api/internal/swap"
 	"escala-fds-api/internal/user"
+	"escala-fds-api/pkg/ierr"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"runtime/debug"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	"go.uber.org/zap"
 )
+
+func JSONAppErrorReporter() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		defer func() {
+			if err := recover(); err != nil {
+				log.Printf("panic recovered: %v", err)
+				debug.PrintStack()
+				restErr := ierr.NewInternalServerError(fmt.Sprintf("PANIC: %v", err))
+				c.AbortWithStatusJSON(http.StatusInternalServerError, restErr)
+			}
+		}()
+		c.Next()
+	}
+}
 
 func main() {
 	logger, _ := zap.NewProduction()
@@ -52,7 +69,9 @@ func main() {
 	certificateHandler := certificate.NewHandler(certificateService)
 
 	// Router
-	router := gin.Default()
+	router := gin.New()
+	router.Use(gin.Logger())
+	router.Use(JSONAppErrorReporter())
 
 	config := cors.DefaultConfig()
 	config.AllowAllOrigins = true
