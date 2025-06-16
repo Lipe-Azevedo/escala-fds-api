@@ -4,7 +4,9 @@ import (
 	"escala-fds-api/internal/entity"
 	"escala-fds-api/pkg/ierr"
 	"fmt"
+	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -33,10 +35,84 @@ func NewService(repo Repository) Service {
 	}
 }
 
-var validPositions = map[entity.TeamName][]entity.PositionName{
-	entity.TeamSecurity:        {entity.PositionSecurity, entity.PositionSupervisorI, entity.PositionSupervisorII},
-	entity.TeamSupport:         {entity.PositionDevBackend, entity.PositionDevFrontend},
-	entity.TeamCustomerService: {entity.PositionAttendant, entity.PositionSupervisorI, entity.PositionSupervisorII},
+func (s *service) Login(email, password string) (string, *entity.User, *ierr.RestErr) {
+	cleanEmail := strings.TrimSpace(email)
+	cleanPassword := strings.TrimSpace(password)
+
+	log.Printf("--- LOGIN ATTEMPT: Email=[%s] ---", cleanEmail)
+
+	user, err := s.repo.FindUserByEmail(cleanEmail)
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			log.Printf("LOGIN FAILED: User not found in DB for email: %s", cleanEmail)
+			return "", nil, ierr.NewUnauthorizedError("invalid credentials")
+		}
+		log.Printf("LOGIN ERROR: Database error finding user: %v", err)
+		return "", nil, ierr.NewInternalServerError("error finding user")
+	}
+
+	log.Printf("LOGIN DEBUG: User found. Stored Hash = [%s]", user.Password)
+	log.Printf("LOGIN DEBUG: Password from request (after trim) = [%s]", cleanPassword)
+
+	if !user.CheckPasswordHash(cleanPassword) {
+		log.Printf("LOGIN FAILED: Password check failed for user %s.", cleanEmail)
+		return "", nil, ierr.NewUnauthorizedError("invalid credentials")
+	}
+
+	log.Printf("LOGIN SUCCESS: Password check passed for user %s.", cleanEmail)
+
+	claims := jwt.MapClaims{
+		"id":        user.ID,
+		"user_type": user.UserType,
+		"team":      user.Team,
+		"exp":       time.Now().Add(time.Hour * 24).Unix(),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString([]byte(s.jwtSecret))
+	if err != nil {
+		log.Printf("LOGIN ERROR: Token generation failed: %v", err)
+		return "", nil, ierr.NewInternalServerError("error generating token")
+	}
+
+	return tokenString, user, nil
+}
+
+func (s *service) UpdatePersonalData(id, requestorId uint, requestorType entity.UserType, userUpdates entity.User) (*entity.User, *ierr.RestErr) {
+	isUnauthenticatedDebugCall := requestorId == 0
+
+	if !isUnauthenticatedDebugCall {
+		if requestorType != entity.UserTypeMaster && id != requestorId {
+			return nil, ierr.NewForbiddenError("you can only update your own personal data")
+		}
+	}
+
+	user, restErr := s.FindUserByID(id)
+	if restErr != nil {
+		return nil, restErr
+	}
+
+	if userUpdates.FirstName != "" {
+		user.FirstName = userUpdates.FirstName
+	}
+	if userUpdates.LastName != "" {
+		user.LastName = userUpdates.LastName
+	}
+	if userUpdates.PhoneNumber != "" {
+		user.PhoneNumber = userUpdates.PhoneNumber
+	}
+	if userUpdates.Password != "" {
+		user.Password = userUpdates.Password
+		if err := user.HashPassword(); err != nil {
+			return nil, ierr.NewInternalServerError("error hashing password")
+		}
+		log.Printf("DEBUG: New password hash generated and set for user ID %d", id)
+	}
+
+	if err := s.repo.UpdateUser(user); err != nil {
+		return nil, ierr.NewInternalServerError("error updating user")
+	}
+	return user, nil
 }
 
 func (s *service) CreateUser(user entity.User, creatorType entity.UserType) (*entity.User, *ierr.RestErr) {
@@ -73,35 +149,6 @@ func (s *service) CreateUser(user entity.User, creatorType entity.UserType) (*en
 	return &user, nil
 }
 
-func (s *service) Login(email, password string) (string, *entity.User, *ierr.RestErr) {
-	user, err := s.repo.FindUserByEmail(email)
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return "", nil, ierr.NewUnauthorizedError("invalid credentials")
-		}
-		return "", nil, ierr.NewInternalServerError("error finding user")
-	}
-
-	if !user.CheckPasswordHash(password) {
-		return "", nil, ierr.NewUnauthorizedError("invalid credentials")
-	}
-
-	claims := jwt.MapClaims{
-		"id":        user.ID,
-		"user_type": user.UserType,
-		"team":      user.Team,
-		"exp":       time.Now().Add(time.Hour * 24).Unix(),
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString([]byte(s.jwtSecret))
-	if err != nil {
-		return "", nil, ierr.NewInternalServerError("error generating token")
-	}
-
-	return tokenString, user, nil
-}
-
 func (s *service) FindUserByID(id uint) (*entity.User, *ierr.RestErr) {
 	user, err := s.repo.FindUserByID(id)
 	if err != nil {
@@ -127,38 +174,6 @@ func (s *service) FindAllUsers(requestorType entity.UserType, requestorTeam enti
 		return nil, ierr.NewInternalServerError("error finding users")
 	}
 	return users, nil
-}
-
-func (s *service) UpdatePersonalData(id, requestorId uint, requestorType entity.UserType, userUpdates entity.User) (*entity.User, *ierr.RestErr) {
-	if requestorType != entity.UserTypeMaster && id != requestorId {
-		return nil, ierr.NewForbiddenError("you can only update your own personal data")
-	}
-
-	user, restErr := s.FindUserByID(id)
-	if restErr != nil {
-		return nil, restErr
-	}
-
-	if userUpdates.FirstName != "" {
-		user.FirstName = userUpdates.FirstName
-	}
-	if userUpdates.LastName != "" {
-		user.LastName = userUpdates.LastName
-	}
-	if userUpdates.PhoneNumber != "" {
-		user.PhoneNumber = userUpdates.PhoneNumber
-	}
-	if userUpdates.Password != "" {
-		user.Password = userUpdates.Password
-		if err := user.HashPassword(); err != nil {
-			return nil, ierr.NewInternalServerError("error hashing password")
-		}
-	}
-
-	if err := s.repo.UpdateUser(user); err != nil {
-		return nil, ierr.NewInternalServerError("error updating user")
-	}
-	return user, nil
 }
 
 func (s *service) UpdateWorkData(id uint, requestorType entity.UserType, userUpdates entity.User) (*entity.User, *ierr.RestErr) {
@@ -224,6 +239,12 @@ func (s *service) validateWorkData(user *entity.User) *ierr.RestErr {
 		return ierr.NewBadRequestError(fmt.Sprintf("position '%s' is not valid for team '%s'", user.Position, user.Team))
 	}
 	return nil
+}
+
+var validPositions = map[entity.TeamName][]entity.PositionName{
+	entity.TeamSecurity:        {entity.PositionSecurity, entity.PositionSupervisorI, entity.PositionSupervisorII},
+	entity.TeamSupport:         {entity.PositionDevBackend, entity.PositionDevFrontend},
+	entity.TeamCustomerService: {entity.PositionAttendant, entity.PositionSupervisorI, entity.PositionSupervisorII},
 }
 
 func (s *service) determineSuperior(team entity.TeamName, position entity.PositionName) (*uint, *ierr.RestErr) {

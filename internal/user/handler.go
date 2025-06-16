@@ -120,8 +120,16 @@ func (h *Handler) FindAll(c *gin.Context) {
 
 func (h *Handler) UpdatePersonalData(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
-	requestorId, _ := auth.GetUserIDFromContext(c)
-	requestorType, _ := auth.GetUserTypeFromContext(c)
+	requestorId, errAuth := auth.GetUserIDFromContext(c)
+	if errAuth != nil {
+		c.JSON(errAuth.Code, errAuth)
+		return
+	}
+	requestorType, errAuth := auth.GetUserTypeFromContext(c)
+	if errAuth != nil {
+		c.JSON(errAuth.Code, errAuth)
+		return
+	}
 
 	var req UpdatePersonalDataRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
