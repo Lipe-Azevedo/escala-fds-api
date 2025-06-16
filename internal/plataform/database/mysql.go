@@ -49,6 +49,7 @@ func NewMySQLConnection() (*gorm.DB, error) {
 		&entity.Swap{},
 		&entity.Comment{},
 		&entity.Holiday{},
+		&entity.Certificate{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to auto-migrate database: %w", err)
