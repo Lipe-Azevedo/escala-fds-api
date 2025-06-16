@@ -35,6 +35,12 @@ func NewService(repo Repository) Service {
 	}
 }
 
+var validPositions = map[entity.TeamName][]entity.PositionName{
+	entity.TeamSecurity:        {entity.PositionSecurity, entity.PositionSupervisorI, entity.PositionSupervisorII},
+	entity.TeamSupport:         {entity.PositionDevBackend, entity.PositionDevFrontend},
+	entity.TeamCustomerService: {entity.PositionAttendant, entity.PositionSupervisorI, entity.PositionSupervisorII},
+}
+
 func (s *service) Login(email, password string) (string, *entity.User, *ierr.RestErr) {
 	cleanEmail := strings.TrimSpace(email)
 	cleanPassword := strings.TrimSpace(password)
@@ -239,12 +245,6 @@ func (s *service) validateWorkData(user *entity.User) *ierr.RestErr {
 		return ierr.NewBadRequestError(fmt.Sprintf("position '%s' is not valid for team '%s'", user.Position, user.Team))
 	}
 	return nil
-}
-
-var validPositions = map[entity.TeamName][]entity.PositionName{
-	entity.TeamSecurity:        {entity.PositionSecurity, entity.PositionSupervisorI, entity.PositionSupervisorII},
-	entity.TeamSupport:         {entity.PositionDevBackend, entity.PositionDevFrontend},
-	entity.TeamCustomerService: {entity.PositionAttendant, entity.PositionSupervisorI, entity.PositionSupervisorII},
 }
 
 func (s *service) determineSuperior(team entity.TeamName, position entity.PositionName) (*uint, *ierr.RestErr) {
