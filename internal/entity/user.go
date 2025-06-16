@@ -1,8 +1,6 @@
 package entity
 
 import (
-	"time"
-
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
@@ -18,30 +16,30 @@ const (
 	UserTypeMaster       UserType = "master"
 	UserTypeCollaborator UserType = "collaborator"
 
-	TeamSecurity        TeamName = "Security"
-	TeamSupport         TeamName = "Support"
-	TeamCustomerService TeamName = "CustomerService"
+	TeamSecurity        TeamName = "Segurança"
+	TeamSupport         TeamName = "Suporte"
+	TeamCustomerService TeamName = "Atendimento"
 
-	PositionSecurity     PositionName = "Security"
+	PositionSecurity     PositionName = "Segurança"
 	PositionSupervisorI  PositionName = "Supervisor I"
 	PositionSupervisorII PositionName = "Supervisor II"
-	PositionDevBackend   PositionName = "Backend Developer"
-	PositionDevFrontend  PositionName = "Frontend Developer"
-	PositionAttendant    PositionName = "Attendant"
+	PositionDevBackend   PositionName = "Desenvolvedor Backend"
+	PositionDevFrontend  PositionName = "Desenvolvedor Frontend"
+	PositionAttendant    PositionName = "Atendente"
 	PositionMaster       PositionName = "Master"
 
-	ShiftMorning   ShiftName = "06:00-14:00"
-	ShiftAfternoon ShiftName = "14:00-22:00"
-	ShiftNight     ShiftName = "22:00-06:00"
+	ShiftMorning   ShiftName = "06:00 às 14:00"
+	ShiftAfternoon ShiftName = "14:00 às 22:00"
+	ShiftNight     ShiftName = "22:00 às 06:00"
 
-	WeekdayMonday    WeekdayName = "monday"
-	WeekdayTuesday   WeekdayName = "tuesday"
-	WeekdayWednesday WeekdayName = "wednesday"
-	WeekdayThursday  WeekdayName = "thursday"
-	WeekdayFriday    WeekdayName = "friday"
+	WeekdayMonday    WeekdayName = "segunda-feira"
+	WeekdayTuesday   WeekdayName = "terça-feira"
+	WeekdayWednesday WeekdayName = "quarta-feira"
+	WeekdayThursday  WeekdayName = "quinta-feira"
+	WeekdayFriday    WeekdayName = "sexta-feira"
 
-	WeekendSaturday WeekendDayName = "saturday"
-	WeekendSunday   WeekendDayName = "sunday"
+	WeekendSaturday WeekendDayName = "sábado"
+	WeekendSunday   WeekendDayName = "domingo"
 )
 
 type User struct {
@@ -59,7 +57,6 @@ type User struct {
 	InitialWeekendOff WeekendDayName `gorm:"type:varchar(20)"`
 	SuperiorID        *uint          `gorm:"index"`
 	Superior          *User          `gorm:"foreignKey:SuperiorID"`
-	CreatedAt         time.Time
 }
 
 func (u *User) HashPassword() error {

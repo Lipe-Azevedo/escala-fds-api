@@ -64,8 +64,11 @@ func Middleware() gin.HandlerFunc {
 			return
 		}
 
+		team, _ := (*claims)["team"].(string)
+
 		c.Set(constants.JwtUserIdKey, uint(idFloat))
 		c.Set(constants.JwtUserTypeKey, userType)
+		c.Set(constants.JwtTeamKey, team)
 		c.Next()
 	}
 }
@@ -92,4 +95,16 @@ func GetUserTypeFromContext(c *gin.Context) (string, *ierr.RestErr) {
 		return "", ierr.NewInternalServerError("invalid user type in context")
 	}
 	return userTypeStr, nil
+}
+
+func GetUserTeamFromContext(c *gin.Context) (string, *ierr.RestErr) {
+	team, ok := c.Get(constants.JwtTeamKey)
+	if !ok {
+		return "", ierr.NewInternalServerError("user team not found in context")
+	}
+	teamStr, ok := team.(string)
+	if !ok {
+		return "", ierr.NewInternalServerError("invalid user team type in context")
+	}
+	return teamStr, nil
 }

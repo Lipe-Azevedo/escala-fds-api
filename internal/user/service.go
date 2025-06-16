@@ -3,6 +3,7 @@ package user
 import (
 	"escala-fds-api/internal/entity"
 	"escala-fds-api/pkg/ierr"
+	"fmt"
 	"os"
 	"time"
 
@@ -11,13 +12,13 @@ import (
 )
 
 type Service interface {
-	CreateUser(user entity.User) (*entity.User, *ierr.RestErr)
+	CreateUser(user entity.User, creatorType entity.UserType) (*entity.User, *ierr.RestErr)
 	Login(email, password string) (string, *entity.User, *ierr.RestErr)
 	FindUserByID(id uint) (*entity.User, *ierr.RestErr)
-	FindAllUsers() ([]entity.User, *ierr.RestErr)
-	UpdatePersonalData(id uint, userUpdates entity.User) (*entity.User, *ierr.RestErr)
-	UpdateWorkData(id uint, userUpdates entity.User) (*entity.User, *ierr.RestErr)
-	DeleteUser(id uint) *ierr.RestErr
+	FindAllUsers(requestorType entity.UserType, requestorTeam entity.TeamName) ([]entity.User, *ierr.RestErr)
+	UpdatePersonalData(id, requestorId uint, requestorType entity.UserType, userUpdates entity.User) (*entity.User, *ierr.RestErr)
+	UpdateWorkData(id uint, requestorType entity.UserType, userUpdates entity.User) (*entity.User, *ierr.RestErr)
+	DeleteUser(id uint, requestorType entity.UserType) *ierr.RestErr
 }
 
 type service struct {
@@ -32,20 +33,34 @@ func NewService(repo Repository) Service {
 	}
 }
 
-func (s *service) CreateUser(user entity.User) (*entity.User, *ierr.RestErr) {
+var validPositions = map[entity.TeamName][]entity.PositionName{
+	entity.TeamSecurity:        {entity.PositionSecurity, entity.PositionSupervisorI, entity.PositionSupervisorII},
+	entity.TeamSupport:         {entity.PositionDevBackend, entity.PositionDevFrontend},
+	entity.TeamCustomerService: {entity.PositionAttendant, entity.PositionSupervisorI, entity.PositionSupervisorII},
+}
+
+func (s *service) CreateUser(user entity.User, creatorType entity.UserType) (*entity.User, *ierr.RestErr) {
+	if creatorType != entity.UserTypeMaster {
+		return nil, ierr.NewForbiddenError("only masters can create new users")
+	}
+
+	if user.UserType == entity.UserTypeCollaborator {
+		if err := s.validateWorkData(&user); err != nil {
+			return nil, err
+		}
+		superiorID, err := s.determineSuperior(user.Team, user.Position)
+		if err != nil {
+			return nil, err
+		}
+		user.SuperiorID = superiorID
+	}
+
 	existingUser, err := s.repo.FindUserByEmail(user.Email)
 	if err != nil && err != gorm.ErrRecordNotFound {
 		return nil, ierr.NewInternalServerError("error finding user by email")
 	}
-	if existingUser != nil && existingUser.ID != 0 {
+	if existingUser != nil {
 		return nil, ierr.NewConflictError("user with this email already exists")
-	}
-
-	if user.SuperiorID != nil {
-		_, err := s.repo.FindUserByID(*user.SuperiorID)
-		if err != nil {
-			return nil, ierr.NewBadRequestError("superior user not found")
-		}
 	}
 
 	if err := user.HashPassword(); err != nil {
@@ -74,6 +89,7 @@ func (s *service) Login(email, password string) (string, *entity.User, *ierr.Res
 	claims := jwt.MapClaims{
 		"id":        user.ID,
 		"user_type": user.UserType,
+		"team":      user.Team,
 		"exp":       time.Now().Add(time.Hour * 24).Unix(),
 	}
 
@@ -97,15 +113,27 @@ func (s *service) FindUserByID(id uint) (*entity.User, *ierr.RestErr) {
 	return user, nil
 }
 
-func (s *service) FindAllUsers() ([]entity.User, *ierr.RestErr) {
-	users, err := s.repo.FindAllUsers()
+func (s *service) FindAllUsers(requestorType entity.UserType, requestorTeam entity.TeamName) ([]entity.User, *ierr.RestErr) {
+	var users []entity.User
+	var err error
+
+	if requestorType == entity.UserTypeMaster {
+		users, err = s.repo.FindAllUsers()
+	} else {
+		users, err = s.repo.FindUsersByTeam(requestorTeam)
+	}
+
 	if err != nil {
 		return nil, ierr.NewInternalServerError("error finding users")
 	}
 	return users, nil
 }
 
-func (s *service) UpdatePersonalData(id uint, userUpdates entity.User) (*entity.User, *ierr.RestErr) {
+func (s *service) UpdatePersonalData(id, requestorId uint, requestorType entity.UserType, userUpdates entity.User) (*entity.User, *ierr.RestErr) {
+	if requestorType != entity.UserTypeMaster && id != requestorId {
+		return nil, ierr.NewForbiddenError("you can only update your own personal data")
+	}
+
 	user, restErr := s.FindUserByID(id)
 	if restErr != nil {
 		return nil, restErr
@@ -133,10 +161,18 @@ func (s *service) UpdatePersonalData(id uint, userUpdates entity.User) (*entity.
 	return user, nil
 }
 
-func (s *service) UpdateWorkData(id uint, userUpdates entity.User) (*entity.User, *ierr.RestErr) {
+func (s *service) UpdateWorkData(id uint, requestorType entity.UserType, userUpdates entity.User) (*entity.User, *ierr.RestErr) {
+	if requestorType != entity.UserTypeMaster {
+		return nil, ierr.NewForbiddenError("only masters can update work data")
+	}
+
 	user, restErr := s.FindUserByID(id)
 	if restErr != nil {
 		return nil, restErr
+	}
+
+	if err := s.validateWorkData(&userUpdates); err != nil {
+		return nil, err
 	}
 
 	user.Team = userUpdates.Team
@@ -144,7 +180,12 @@ func (s *service) UpdateWorkData(id uint, userUpdates entity.User) (*entity.User
 	user.Shift = userUpdates.Shift
 	user.WeekdayOff = userUpdates.WeekdayOff
 	user.InitialWeekendOff = userUpdates.InitialWeekendOff
-	user.SuperiorID = userUpdates.SuperiorID
+
+	superiorID, err := s.determineSuperior(userUpdates.Team, userUpdates.Position)
+	if err != nil {
+		return nil, err
+	}
+	user.SuperiorID = superiorID
 
 	if err := s.repo.UpdateUser(user); err != nil {
 		return nil, ierr.NewInternalServerError("error updating user work data")
@@ -152,7 +193,11 @@ func (s *service) UpdateWorkData(id uint, userUpdates entity.User) (*entity.User
 	return user, nil
 }
 
-func (s *service) DeleteUser(id uint) *ierr.RestErr {
+func (s *service) DeleteUser(id uint, requestorType entity.UserType) *ierr.RestErr {
+	if requestorType != entity.UserTypeMaster {
+		return ierr.NewForbiddenError("only masters can delete users")
+	}
+
 	if _, err := s.FindUserByID(id); err != nil {
 		return err
 	}
@@ -160,4 +205,56 @@ func (s *service) DeleteUser(id uint) *ierr.RestErr {
 		return ierr.NewInternalServerError("error deleting user")
 	}
 	return nil
+}
+
+func (s *service) validateWorkData(user *entity.User) *ierr.RestErr {
+	positions, ok := validPositions[user.Team]
+	if !ok {
+		return ierr.NewBadRequestError(fmt.Sprintf("invalid team: %s", user.Team))
+	}
+
+	isValidPosition := false
+	for _, pos := range positions {
+		if pos == user.Position {
+			isValidPosition = true
+			break
+		}
+	}
+	if !isValidPosition {
+		return ierr.NewBadRequestError(fmt.Sprintf("position '%s' is not valid for team '%s'", user.Position, user.Team))
+	}
+	return nil
+}
+
+func (s *service) determineSuperior(team entity.TeamName, position entity.PositionName) (*uint, *ierr.RestErr) {
+	if position == entity.PositionDevBackend || position == entity.PositionDevFrontend || position == entity.PositionSupervisorII {
+		master, err := s.repo.FindMasterUser()
+		if err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return nil, ierr.NewNotFoundError("master user not found to be set as superior")
+			}
+			return nil, ierr.NewInternalServerError("error finding master user")
+		}
+		return &master.ID, nil
+	}
+
+	var superiorPosition entity.PositionName
+	switch position {
+	case entity.PositionSecurity, entity.PositionAttendant:
+		superiorPosition = entity.PositionSupervisorI
+	case entity.PositionSupervisorI:
+		superiorPosition = entity.PositionSupervisorII
+	default:
+		return nil, nil
+	}
+
+	superiors, err := s.repo.FindUsersByTeamAndPosition(team, superiorPosition)
+	if err != nil {
+		return nil, ierr.NewInternalServerError(fmt.Sprintf("error finding superior with position %s", superiorPosition))
+	}
+	if len(superiors) == 0 {
+		return nil, ierr.NewNotFoundError(fmt.Sprintf("no superior found with position %s in team %s", superiorPosition, team))
+	}
+
+	return &superiors[0].ID, nil
 }

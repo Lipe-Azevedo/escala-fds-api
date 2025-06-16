@@ -54,6 +54,12 @@ func (h *Handler) Login(c *gin.Context) {
 }
 
 func (h *Handler) CreateUser(c *gin.Context) {
+	creatorTypeStr, errAuth := auth.GetUserTypeFromContext(c)
+	if errAuth != nil {
+		c.JSON(errAuth.Code, errAuth)
+		return
+	}
+
 	var req CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		restErr := ierr.NewBadRequestValidationError("invalid request body", nil)
@@ -76,7 +82,7 @@ func (h *Handler) CreateUser(c *gin.Context) {
 		SuperiorID:        req.SuperiorID,
 	}
 
-	newUser, err := h.service.CreateUser(userEntity)
+	newUser, err := h.service.CreateUser(userEntity, entity.UserType(creatorTypeStr))
 	if err != nil {
 		c.JSON(err.Code, err)
 		return
@@ -96,7 +102,10 @@ func (h *Handler) FindByID(c *gin.Context) {
 }
 
 func (h *Handler) FindAll(c *gin.Context) {
-	users, err := h.service.FindAllUsers()
+	requestorTypeStr, _ := auth.GetUserTypeFromContext(c)
+	requestorTeamStr, _ := auth.GetUserTeamFromContext(c)
+
+	users, err := h.service.FindAllUsers(entity.UserType(requestorTypeStr), entity.TeamName(requestorTeamStr))
 	if err != nil {
 		c.JSON(err.Code, err)
 		return
@@ -111,6 +120,8 @@ func (h *Handler) FindAll(c *gin.Context) {
 
 func (h *Handler) UpdatePersonalData(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
+	requestorId, _ := auth.GetUserIDFromContext(c)
+	requestorType, _ := auth.GetUserTypeFromContext(c)
 
 	var req UpdatePersonalDataRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -126,7 +137,7 @@ func (h *Handler) UpdatePersonalData(c *gin.Context) {
 		Password:    req.Password,
 	}
 
-	updatedUser, err := h.service.UpdatePersonalData(uint(id), userEntity)
+	updatedUser, err := h.service.UpdatePersonalData(uint(id), requestorId, entity.UserType(requestorType), userEntity)
 	if err != nil {
 		c.JSON(err.Code, err)
 		return
@@ -136,6 +147,7 @@ func (h *Handler) UpdatePersonalData(c *gin.Context) {
 
 func (h *Handler) UpdateWorkData(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
+	requestorType, _ := auth.GetUserTypeFromContext(c)
 
 	var req UpdateWorkDataRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -153,7 +165,7 @@ func (h *Handler) UpdateWorkData(c *gin.Context) {
 		SuperiorID:        req.SuperiorID,
 	}
 
-	updatedUser, err := h.service.UpdateWorkData(uint(id), userEntity)
+	updatedUser, err := h.service.UpdateWorkData(uint(id), entity.UserType(requestorType), userEntity)
 	if err != nil {
 		c.JSON(err.Code, err)
 		return
@@ -163,7 +175,9 @@ func (h *Handler) UpdateWorkData(c *gin.Context) {
 
 func (h *Handler) Delete(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
-	err := h.service.DeleteUser(uint(id))
+	requestorType, _ := auth.GetUserTypeFromContext(c)
+
+	err := h.service.DeleteUser(uint(id), entity.UserType(requestorType))
 	if err != nil {
 		c.JSON(err.Code, err)
 		return

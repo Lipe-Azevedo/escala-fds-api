@@ -11,6 +11,9 @@ type Repository interface {
 	FindUserByEmail(email string) (*entity.User, error)
 	FindUserByID(id uint) (*entity.User, error)
 	FindAllUsers() ([]entity.User, error)
+	FindUsersByTeam(team entity.TeamName) ([]entity.User, error)
+	FindUsersByTeamAndPosition(team entity.TeamName, position entity.PositionName) ([]entity.User, error)
+	FindMasterUser() (*entity.User, error)
 	UpdateUser(user *entity.User) error
 	DeleteUser(id uint) error
 }
@@ -49,6 +52,24 @@ func (r *repository) FindAllUsers() ([]entity.User, error) {
 		return nil, err
 	}
 	return users, nil
+}
+
+func (r *repository) FindUsersByTeam(team entity.TeamName) ([]entity.User, error) {
+	var users []entity.User
+	err := r.db.Preload("Superior").Where("team = ?", team).Order("first_name asc").Find(&users).Error
+	return users, err
+}
+
+func (r *repository) FindUsersByTeamAndPosition(team entity.TeamName, position entity.PositionName) ([]entity.User, error) {
+	var users []entity.User
+	err := r.db.Where("team = ? AND position = ?", team, position).Find(&users).Error
+	return users, err
+}
+
+func (r *repository) FindMasterUser() (*entity.User, error) {
+	var user entity.User
+	err := r.db.Where("user_type = ?", entity.UserTypeMaster).First(&user).Error
+	return &user, err
 }
 
 func (r *repository) UpdateUser(user *entity.User) error {

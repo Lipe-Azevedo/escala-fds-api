@@ -26,6 +26,14 @@ type CommentResponse struct {
 	UpdatedAt    string            `json:"updatedAt"`
 }
 
+type Filters struct {
+	StartDate      string
+	EndDate        string
+	CollaboratorID string
+	AuthorID       string
+	Team           string
+}
+
 func ToCommentResponse(comment *entity.Comment) CommentResponse {
 	return CommentResponse{
 		ID:           comment.ID,

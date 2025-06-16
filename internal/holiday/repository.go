@@ -12,6 +12,7 @@ type Repository interface {
 	FindHolidayByID(id uint) (*entity.Holiday, error)
 	FindHolidaysByDateRange(startDate, endDate time.Time) ([]entity.Holiday, error)
 	FindAllHolidays() ([]entity.Holiday, error)
+	IsHoliday(date time.Time) (bool, error)
 	UpdateHoliday(holiday *entity.Holiday) error
 	DeleteHoliday(id uint) error
 }
@@ -45,7 +46,17 @@ func (r *repository) FindHolidaysByDateRange(startDate, endDate time.Time) ([]en
 func (r *repository) FindAllHolidays() ([]entity.Holiday, error) {
 	var holidays []entity.Holiday
 	err := r.db.Order("date asc").Find(&holidays).Error
-	return holidays, err // <-- CORRIGIDO AQUI (e em outras funções para garantir)
+	return holidays, err
+}
+
+func (r *repository) IsHoliday(date time.Time) (bool, error) {
+	var count int64
+	// Compare only the date part, ignoring time
+	err := r.db.Model(&entity.Holiday{}).Where("DATE(date) = ?", date.Format("2006-01-02")).Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func (r *repository) UpdateHoliday(holiday *entity.Holiday) error {

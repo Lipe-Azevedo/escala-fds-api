@@ -24,8 +24,7 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 	commentRoutes.Use(auth.Middleware())
 	{
 		commentRoutes.POST("", h.Create)
-		commentRoutes.GET("", h.FindAll)
-		commentRoutes.GET("/user/:id", h.FindByCollaborator)
+		commentRoutes.GET("", h.Find)
 		commentRoutes.GET("/:id", h.FindByID)
 		commentRoutes.PUT("/:id", h.Update)
 		commentRoutes.DELETE("/:id", h.Delete)
@@ -45,6 +44,12 @@ func (h *Handler) Create(c *gin.Context) {
 		return
 	}
 
+	authorTypeStr, errAuth := auth.GetUserTypeFromContext(c)
+	if errAuth != nil {
+		c.JSON(errAuth.Code, errAuth)
+		return
+	}
+
 	date, err := time.ParseInLocation("2006-01-02", req.Date, time.UTC)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, ierr.NewBadRequestError("invalid date format, use YYYY-MM-DD"))
@@ -53,12 +58,11 @@ func (h *Handler) Create(c *gin.Context) {
 
 	commentEntity := entity.Comment{
 		CollaboratorID: req.CollaboratorID,
-		AuthorID:       authorID,
 		Text:           req.Text,
 		Date:           date,
 	}
 
-	newComment, errSvc := h.service.CreateComment(commentEntity)
+	newComment, errSvc := h.service.CreateComment(commentEntity, authorID, entity.UserType(authorTypeStr))
 	if errSvc != nil {
 		c.JSON(errSvc.Code, errSvc)
 		return
@@ -66,22 +70,19 @@ func (h *Handler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, ToCommentResponse(newComment))
 }
 
-func (h *Handler) FindAll(c *gin.Context) {
-	comments, err := h.service.FindAllComments()
-	if err != nil {
-		c.JSON(err.Code, err)
-		return
-	}
-	var res []CommentResponse
-	for _, comment := range comments {
-		res = append(res, ToCommentResponse(&comment))
-	}
-	c.JSON(http.StatusOK, res)
-}
+func (h *Handler) Find(c *gin.Context) {
+	requestorID, _ := auth.GetUserIDFromContext(c)
+	requestorType, _ := auth.GetUserTypeFromContext(c)
 
-func (h *Handler) FindByCollaborator(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
-	comments, err := h.service.FindCommentsByCollaborator(uint(id))
+	filters := Filters{
+		StartDate:      c.Query("startDate"),
+		EndDate:        c.Query("endDate"),
+		CollaboratorID: c.Query("collaboratorId"),
+		AuthorID:       c.Query("authorId"),
+		Team:           c.Query("team"),
+	}
+
+	comments, err := h.service.FindComments(requestorID, entity.UserType(requestorType), filters)
 	if err != nil {
 		c.JSON(err.Code, err)
 		return
@@ -127,18 +128,18 @@ func (h *Handler) Update(c *gin.Context) {
 
 func (h *Handler) Delete(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
-	authorID, errAuth := auth.GetUserIDFromContext(c)
+	requestorID, errAuth := auth.GetUserIDFromContext(c)
 	if errAuth != nil {
 		c.JSON(errAuth.Code, errAuth)
 		return
 	}
-	authorTypeStr, errAuth := auth.GetUserTypeFromContext(c)
+	requestorTypeStr, errAuth := auth.GetUserTypeFromContext(c)
 	if errAuth != nil {
 		c.JSON(errAuth.Code, errAuth)
 		return
 	}
 
-	err := h.service.DeleteComment(uint(id), authorID, entity.UserType(authorTypeStr))
+	err := h.service.DeleteComment(uint(id), requestorID, entity.UserType(requestorTypeStr))
 	if err != nil {
 		c.JSON(err.Code, err)
 		return

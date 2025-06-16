@@ -2,15 +2,17 @@ package swap
 
 import (
 	"escala-fds-api/internal/entity"
+	"escala-fds-api/internal/holiday"
 	"escala-fds-api/internal/user"
 	"escala-fds-api/pkg/ierr"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
 )
 
 type Service interface {
-	CreateSwap(swap entity.Swap, requesterID uint) (*entity.Swap, *ierr.RestErr)
+	CreateSwap(swap entity.Swap, requesterID uint, requesterType entity.UserType) (*entity.Swap, *ierr.RestErr)
 	ApproveOrRejectSwap(swapID, approverID uint, newStatus entity.SwapStatus) (*entity.Swap, *ierr.RestErr)
 	FindSwapByID(id uint) (*entity.Swap, *ierr.RestErr)
 	FindSwapsForUser(userID uint, statusFilter string) ([]entity.Swap, *ierr.RestErr)
@@ -19,25 +21,41 @@ type Service interface {
 }
 
 type service struct {
-	swapRepo Repository
-	userRepo user.Repository
+	swapRepo    Repository
+	userRepo    user.Repository
+	holidayRepo holiday.Repository
 }
 
-func NewService(swapRepo Repository, userRepo user.Repository) Service {
-	return &service{swapRepo: swapRepo, userRepo: userRepo}
+func NewService(swapRepo Repository, userRepo user.Repository, holidayRepo holiday.Repository) Service {
+	return &service{
+		swapRepo:    swapRepo,
+		userRepo:    userRepo,
+		holidayRepo: holidayRepo,
+	}
 }
 
-var shiftTimings = map[entity.ShiftName]struct{ start, end int }{
-	entity.ShiftMorning:   {start: 6, end: 14},
-	entity.ShiftAfternoon: {start: 14, end: 22},
-	entity.ShiftNight:     {start: 22, end: 30},
+var shiftTimings = map[entity.ShiftName]struct {
+	start time.Duration
+	end   time.Duration
+}{
+	entity.ShiftMorning:   {start: 6 * time.Hour, end: 14 * time.Hour},
+	entity.ShiftAfternoon: {start: 14 * time.Hour, end: 22 * time.Hour},
+	entity.ShiftNight:     {start: 22 * time.Hour, end: 30 * time.Hour},
 }
 
-func (s *service) CreateSwap(swap entity.Swap, requesterID uint) (*entity.Swap, *ierr.RestErr) {
+func (s *service) CreateSwap(swap entity.Swap, requesterID uint, requesterType entity.UserType) (*entity.Swap, *ierr.RestErr) {
 	swap.RequesterID = requesterID
-	swap.Status = entity.StatusPending
 
-	if err := s.validateSwap(swap); err != nil {
+	if requesterType == entity.UserTypeMaster {
+		swap.Status = entity.StatusApproved
+		now := time.Now().UTC()
+		swap.ApprovedAt = &now
+		swap.ApprovedByID = &requesterID
+	} else {
+		swap.Status = entity.StatusPending
+	}
+
+	if err := s.validateSwap(&swap); err != nil {
 		return nil, err
 	}
 	if err := s.swapRepo.CreateSwap(&swap); err != nil {
@@ -50,7 +68,7 @@ func (s *service) CreateSwap(swap entity.Swap, requesterID uint) (*entity.Swap, 
 	return newSwap, nil
 }
 
-func (s *service) validateSwap(swap entity.Swap) *ierr.RestErr {
+func (s *service) validateSwap(swap *entity.Swap) *ierr.RestErr {
 	requester, err := s.userRepo.FindUserByID(swap.RequesterID)
 	if err != nil {
 		return ierr.NewBadRequestError("requester not found")
@@ -72,56 +90,134 @@ func (s *service) validateSwap(swap entity.Swap) *ierr.RestErr {
 		return ierr.NewBadRequestError("weekday off can only be swapped for another weekday, and weekend off for another weekend day")
 	}
 
-	if err := s.checkRestInterval(requester, &swap); err != nil {
+	if err := s.checkRestInterval(requester, swap); err != nil {
 		return err
 	}
+
 	return nil
 }
 
-func (s *service) checkRestInterval(requester *entity.User, swap *entity.Swap) *ierr.RestErr {
+func (s *service) checkRestInterval(user *entity.User, swap *entity.Swap) *ierr.RestErr {
 	dayBefore := swap.NewDate.AddDate(0, 0, -1)
 	dayAfter := swap.NewDate.AddDate(0, 0, 1)
 
-	shiftBefore, err := s.getShiftForDay(requester, dayBefore)
+	shiftBefore, isWorkDayBefore, err := s.getShiftForDay(user, dayBefore)
 	if err != nil {
-		return ierr.NewInternalServerError("could not determine shift for previous day")
+		return ierr.NewInternalServerError("could not determine schedule for previous day")
 	}
-
-	shiftAfter, err := s.getShiftForDay(requester, dayAfter)
-	if err != nil {
-		return ierr.NewInternalServerError("could not determine shift for next day")
-	}
-
-	if shiftBefore != "" {
-		endOfShiftBefore := dayBefore.Add(time.Hour * time.Duration(shiftTimings[shiftBefore].end))
-		startOfNewShift := swap.NewDate.Add(time.Hour * time.Duration(shiftTimings[swap.NewShift].start))
-		if startOfNewShift.Sub(endOfShiftBefore).Hours() < 11 {
+	if isWorkDayBefore {
+		endOfShiftBefore := dayBefore.Add(shiftTimings[shiftBefore].end)
+		startOfNewShift := swap.NewDate.Add(shiftTimings[swap.NewShift].start)
+		if startOfNewShift.Sub(endOfShiftBefore) < 11*time.Hour {
 			return ierr.NewBadRequestError("the proposed swap violates the minimum 11-hour rest interval with the previous day's shift")
 		}
 	}
 
-	if shiftAfter != "" {
-		endOfNewShift := swap.NewDate.Add(time.Hour * time.Duration(shiftTimings[swap.NewShift].end))
-		startOfShiftAfter := dayAfter.Add(time.Hour * time.Duration(shiftTimings[shiftAfter].start))
-		if startOfShiftAfter.Sub(endOfNewShift).Hours() < 11 {
+	shiftAfter, isWorkDayAfter, err := s.getShiftForDay(user, dayAfter)
+	if err != nil {
+		return ierr.NewInternalServerError("could not determine schedule for next day")
+	}
+	if isWorkDayAfter {
+		endOfNewShift := swap.NewDate.Add(shiftTimings[swap.NewShift].end)
+		startOfShiftAfter := dayAfter.Add(shiftTimings[shiftAfter].start)
+		if startOfShiftAfter.Sub(endOfNewShift) < 11*time.Hour {
 			return ierr.NewBadRequestError("the proposed swap violates the minimum 11-hour rest interval with the next day's shift")
 		}
 	}
 	return nil
 }
 
-func (s *service) getShiftForDay(u *entity.User, date time.Time) (entity.ShiftName, error) {
-	if isDayOff(date, u) {
-		return "", nil
-	}
+func (s *service) getShiftForDay(u *entity.User, date time.Time) (entity.ShiftName, bool, error) {
 	swaps, err := s.swapRepo.FindApprovedSwapsForDateRange(u.ID, date, date)
 	if err != nil && err != gorm.ErrRecordNotFound {
-		return "", err
+		return "", false, err
 	}
 	if len(swaps) > 0 {
-		return swaps[0].NewShift, nil
+		for _, swap := range swaps {
+			isSameNewDate := swap.NewDate.Year() == date.Year() && swap.NewDate.YearDay() == date.YearDay()
+			isSameOriginalDate := swap.OriginalDate.Year() == date.Year() && swap.OriginalDate.YearDay() == date.YearDay()
+			isRequester := swap.RequesterID == u.ID
+			isInvolved := swap.InvolvedCollaboratorID != nil && *swap.InvolvedCollaboratorID == u.ID
+
+			if isSameNewDate && isRequester {
+				return "", false, nil
+			}
+			if isSameOriginalDate && isRequester {
+				return swap.NewShift, true, nil
+			}
+			if isSameNewDate && isInvolved {
+				return swap.NewShift, true, nil
+			}
+			if isSameOriginalDate && isInvolved {
+				return "", false, nil
+			}
+		}
 	}
-	return u.Shift, nil
+
+	isHoliday, err := s.holidayRepo.IsHoliday(date)
+	if err != nil {
+		return "", false, err
+	}
+	if isHoliday {
+		return "", false, nil
+	}
+
+	if isRegularDayOff(date, u) {
+		return "", false, nil
+	}
+
+	return u.Shift, true, nil
+}
+
+func isWeekend(date time.Time) bool {
+	wd := date.Weekday()
+	return wd == time.Saturday || wd == time.Sunday
+}
+
+func isRegularDayOff(date time.Time, user *entity.User) bool {
+	weekdayMap := map[time.Weekday]entity.WeekdayName{
+		time.Monday:    entity.WeekdayMonday,
+		time.Tuesday:   entity.WeekdayTuesday,
+		time.Wednesday: entity.WeekdayWednesday,
+		time.Thursday:  entity.WeekdayThursday,
+		time.Friday:    entity.WeekdayFriday,
+	}
+	if user.WeekdayOff == weekdayMap[date.Weekday()] {
+		return true
+	}
+
+	if date.Weekday() == time.Saturday || date.Weekday() == time.Sunday {
+		if user.InitialWeekendOff == "" {
+			return false
+		}
+		firstWeekendOffDay := time.Sunday
+		if user.InitialWeekendOff == entity.WeekendSaturday {
+			firstWeekendOffDay = time.Saturday
+		}
+		firstOccurrence := user.CreatedAt
+		for firstOccurrence.Weekday() != firstWeekendOffDay {
+			firstOccurrence = firstOccurrence.AddDate(0, 0, 1)
+		}
+		firstOccurrence = time.Date(firstOccurrence.Year(), firstOccurrence.Month(), firstOccurrence.Day(), 0, 0, 0, 0, time.UTC)
+		currentDayOnly := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
+		if currentDayOnly.Before(firstOccurrence) {
+			return false
+		}
+		daysDiff := currentDayOnly.Sub(firstOccurrence).Hours() / 24
+		weekDiff := int(daysDiff / 7)
+		currentWeekendOffDay := firstWeekendOffDay
+		if weekDiff%2 != 0 {
+			if firstWeekendOffDay == time.Saturday {
+				currentWeekendOffDay = time.Sunday
+			} else {
+				currentWeekendOffDay = time.Saturday
+			}
+		}
+		if date.Weekday() == currentWeekendOffDay {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *service) ApproveOrRejectSwap(swapID, approverID uint, newStatus entity.SwapStatus) (*entity.Swap, *ierr.RestErr) {
@@ -141,8 +237,8 @@ func (s *service) ApproveOrRejectSwap(swapID, approverID uint, newStatus entity.
 		return nil, ierr.NewForbiddenError("you do not have permission to approve this request")
 	}
 	swap.Status = newStatus
+	now := time.Now().UTC()
 	if newStatus == entity.StatusApproved {
-		now := time.Now()
 		swap.ApprovedAt = &now
 		swap.ApprovedByID = &approverID
 	} else {
@@ -150,7 +246,7 @@ func (s *service) ApproveOrRejectSwap(swapID, approverID uint, newStatus entity.
 		swap.ApprovedByID = nil
 	}
 	if err := s.swapRepo.UpdateSwap(swap); err != nil {
-		return nil, ierr.NewInternalServerError("error updating swap status")
+		return nil, ierr.NewInternalServerError(fmt.Sprintf("error updating swap status: %v", err))
 	}
 	return swap, nil
 }
@@ -190,66 +286,13 @@ func (s *service) DeleteSwap(id, requesterID uint, requesterType entity.UserType
 	if requesterType != entity.UserTypeMaster && swap.RequesterID != requesterID {
 		return ierr.NewForbiddenError("you can only delete your own swap requests")
 	}
+
+	if swap.Status == entity.StatusApproved {
+		return ierr.NewForbiddenError("cannot delete an approved swap request")
+	}
+
 	if err := s.swapRepo.DeleteSwap(id); err != nil {
 		return ierr.NewInternalServerError("error deleting swap request")
 	}
 	return nil
-}
-
-func isWeekend(date time.Time) bool {
-	wd := date.Weekday()
-	return wd == time.Saturday || wd == time.Sunday
-}
-
-func isDayOff(date time.Time, u *entity.User) bool {
-	weekdayMap := map[time.Weekday]entity.WeekdayName{
-		time.Monday:    entity.WeekdayMonday,
-		time.Tuesday:   entity.WeekdayTuesday,
-		time.Wednesday: entity.WeekdayWednesday,
-		time.Thursday:  entity.WeekdayThursday,
-		time.Friday:    entity.WeekdayFriday,
-	}
-	if u.WeekdayOff == weekdayMap[date.Weekday()] {
-		return true
-	}
-
-	if isWeekend(date) {
-		if u.InitialWeekendOff == "" {
-			return false
-		}
-
-		firstWeekendOffDay := time.Sunday
-		if u.InitialWeekendOff == entity.WeekendSaturday {
-			firstWeekendOffDay = time.Saturday
-		}
-
-		firstOccurrence := u.CreatedAt
-		for firstOccurrence.Weekday() != firstWeekendOffDay {
-			firstOccurrence = firstOccurrence.AddDate(0, 0, 1)
-		}
-		firstOccurrence = time.Date(firstOccurrence.Year(), firstOccurrence.Month(), firstOccurrence.Day(), 0, 0, 0, 0, time.UTC)
-
-		currentDayOnly := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
-
-		if currentDayOnly.Before(firstOccurrence) {
-			return false
-		}
-
-		daysDiff := currentDayOnly.Sub(firstOccurrence).Hours() / 24
-		weekDiff := int(daysDiff / 7)
-
-		currentWeekendOffDay := firstWeekendOffDay
-		if weekDiff%2 != 0 {
-			if firstWeekendOffDay == time.Saturday {
-				currentWeekendOffDay = time.Sunday
-			} else {
-				currentWeekendOffDay = time.Saturday
-			}
-		}
-
-		if date.Weekday() == currentWeekendOffDay {
-			return true
-		}
-	}
-	return false
 }

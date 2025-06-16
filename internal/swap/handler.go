@@ -45,6 +45,12 @@ func (h *Handler) Create(c *gin.Context) {
 		return
 	}
 
+	requesterType, errAuth := auth.GetUserTypeFromContext(c)
+	if errAuth != nil {
+		c.JSON(errAuth.Code, errAuth)
+		return
+	}
+
 	originalDate, err := time.ParseInLocation("2006-01-02", req.OriginalDate, time.UTC)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, ierr.NewBadRequestError("invalid originalDate format"))
@@ -65,7 +71,7 @@ func (h *Handler) Create(c *gin.Context) {
 		Reason:                 req.Reason,
 	}
 
-	newSwap, errSvc := h.service.CreateSwap(swapEntity, requesterID)
+	newSwap, errSvc := h.service.CreateSwap(swapEntity, requesterID, entity.UserType(requesterType))
 	if errSvc != nil {
 		c.JSON(errSvc.Code, errSvc)
 		return

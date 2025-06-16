@@ -10,8 +10,8 @@ import (
 type Repository interface {
 	CreateComment(comment *entity.Comment) error
 	FindCommentByID(id uint) (*entity.Comment, error)
+	Find(filters Filters) ([]entity.Comment, error)
 	FindCommentsForUserInDateRange(userID uint, startDate, endDate time.Time) ([]entity.Comment, error)
-	FindAllComments() ([]entity.Comment, error)
 	UpdateComment(comment *entity.Comment) error
 	DeleteComment(id uint) error
 }
@@ -36,6 +36,37 @@ func (r *repository) FindCommentByID(id uint) (*entity.Comment, error) {
 	return &comment, nil
 }
 
+func (r *repository) Find(filters Filters) ([]entity.Comment, error) {
+	var comments []entity.Comment
+	query := r.db.
+		Preload("Collaborator").
+		Preload("Author").
+		Joins("JOIN users AS collaborator ON collaborator.id = comments.collaborator_id")
+
+	if filters.CollaboratorID != "" {
+		query = query.Where("comments.collaborator_id = ?", filters.CollaboratorID)
+	}
+	if filters.AuthorID != "" {
+		query = query.Where("comments.author_id = ?", filters.AuthorID)
+	}
+	if filters.Team != "" {
+		query = query.Where("collaborator.team = ?", filters.Team)
+	}
+	if filters.StartDate != "" {
+		if date, err := time.Parse("2006-01-02", filters.StartDate); err == nil {
+			query = query.Where("comments.date >= ?", date)
+		}
+	}
+	if filters.EndDate != "" {
+		if date, err := time.Parse("2006-01-02", filters.EndDate); err == nil {
+			query = query.Where("comments.date <= ?", date)
+		}
+	}
+
+	err := query.Order("comments.date desc").Find(&comments).Error
+	return comments, err
+}
+
 func (r *repository) FindCommentsForUserInDateRange(userID uint, startDate, endDate time.Time) ([]entity.Comment, error) {
 	var comments []entity.Comment
 	err := r.db.
@@ -43,12 +74,6 @@ func (r *repository) FindCommentsForUserInDateRange(userID uint, startDate, endD
 		Where("collaborator_id = ? AND date BETWEEN ? AND ?", userID, startDate, endDate).
 		Order("date desc").
 		Find(&comments).Error
-	return comments, err
-}
-
-func (r *repository) FindAllComments() ([]entity.Comment, error) {
-	var comments []entity.Comment
-	err := r.db.Preload("Collaborator").Preload("Author").Order("created_at desc").Find(&comments).Error
 	return comments, err
 }
 

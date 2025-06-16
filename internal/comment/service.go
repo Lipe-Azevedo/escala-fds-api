@@ -4,18 +4,17 @@ import (
 	"escala-fds-api/internal/entity"
 	"escala-fds-api/internal/user"
 	"escala-fds-api/pkg/ierr"
-	"time"
+	"strconv"
 
 	"gorm.io/gorm"
 )
 
 type Service interface {
-	CreateComment(comment entity.Comment) (*entity.Comment, *ierr.RestErr)
+	CreateComment(comment entity.Comment, authorID uint, authorType entity.UserType) (*entity.Comment, *ierr.RestErr)
 	FindCommentByID(id uint) (*entity.Comment, *ierr.RestErr)
-	FindCommentsByCollaborator(collaboratorID uint) ([]entity.Comment, *ierr.RestErr)
-	FindAllComments() ([]entity.Comment, *ierr.RestErr)
+	FindComments(requestorID uint, requestorType entity.UserType, filters Filters) ([]entity.Comment, *ierr.RestErr)
 	UpdateComment(id uint, text string, authorID uint) (*entity.Comment, *ierr.RestErr)
-	DeleteComment(id uint, authorID uint, authorType entity.UserType) *ierr.RestErr
+	DeleteComment(id uint, requestorID uint, requestorType entity.UserType) *ierr.RestErr
 }
 
 type service struct {
@@ -27,17 +26,23 @@ func NewService(commentRepo Repository, userRepo user.Repository) Service {
 	return &service{commentRepo: commentRepo, userRepo: userRepo}
 }
 
-func (s *service) CreateComment(comment entity.Comment) (*entity.Comment, *ierr.RestErr) {
-	_, err := s.userRepo.FindUserByID(comment.AuthorID)
+func (s *service) CreateComment(comment entity.Comment, authorID uint, authorType entity.UserType) (*entity.Comment, *ierr.RestErr) {
+	author, err := s.userRepo.FindUserByID(authorID)
 	if err != nil {
 		return nil, ierr.NewBadRequestError("author not found")
 	}
 
-	_, err = s.userRepo.FindUserByID(comment.CollaboratorID)
+	collaborator, err := s.userRepo.FindUserByID(comment.CollaboratorID)
 	if err != nil {
 		return nil, ierr.NewBadRequestError("collaborator not found")
 	}
 
+	isSuperior := (collaborator.SuperiorID != nil && *collaborator.SuperiorID == authorID)
+	if author.UserType != entity.UserTypeMaster && !isSuperior {
+		return nil, ierr.NewForbiddenError("only masters or direct superiors can add comments")
+	}
+
+	comment.AuthorID = authorID
 	if err := s.commentRepo.CreateComment(&comment); err != nil {
 		return nil, ierr.NewInternalServerError("error creating comment")
 	}
@@ -50,6 +55,20 @@ func (s *service) CreateComment(comment entity.Comment) (*entity.Comment, *ierr.
 	return newComment, nil
 }
 
+func (s *service) FindComments(requestorID uint, requestorType entity.UserType, filters Filters) ([]entity.Comment, *ierr.RestErr) {
+	if requestorType == entity.UserTypeCollaborator {
+		filters.CollaboratorID = strconv.FormatUint(uint64(requestorID), 10)
+		filters.Team = ""
+		filters.AuthorID = ""
+	}
+
+	comments, err := s.commentRepo.Find(filters)
+	if err != nil {
+		return nil, ierr.NewInternalServerError("error finding comments")
+	}
+	return comments, nil
+}
+
 func (s *service) FindCommentByID(id uint) (*entity.Comment, *ierr.RestErr) {
 	comment, err := s.commentRepo.FindCommentByID(id)
 	if err != nil {
@@ -59,26 +78,6 @@ func (s *service) FindCommentByID(id uint) (*entity.Comment, *ierr.RestErr) {
 		return nil, ierr.NewInternalServerError("error finding comment")
 	}
 	return comment, nil
-}
-
-func (s *service) FindCommentsByCollaborator(collaboratorID uint) ([]entity.Comment, *ierr.RestErr) {
-	now := time.Now()
-	startDate := now.AddDate(0, -3, 0)
-	endDate := now.AddDate(0, 0, 1)
-
-	comments, err := s.commentRepo.FindCommentsForUserInDateRange(collaboratorID, startDate, endDate)
-	if err != nil {
-		return nil, ierr.NewInternalServerError("error finding comments for collaborator")
-	}
-	return comments, nil
-}
-
-func (s *service) FindAllComments() ([]entity.Comment, *ierr.RestErr) {
-	comments, err := s.commentRepo.FindAllComments()
-	if err != nil {
-		return nil, ierr.NewInternalServerError("error finding all comments")
-	}
-	return comments, nil
 }
 
 func (s *service) UpdateComment(id uint, text string, authorID uint) (*entity.Comment, *ierr.RestErr) {
@@ -98,13 +97,13 @@ func (s *service) UpdateComment(id uint, text string, authorID uint) (*entity.Co
 	return comment, nil
 }
 
-func (s *service) DeleteComment(id uint, authorID uint, authorType entity.UserType) *ierr.RestErr {
+func (s *service) DeleteComment(id uint, requestorID uint, requestorType entity.UserType) *ierr.RestErr {
 	comment, restErr := s.FindCommentByID(id)
 	if restErr != nil {
 		return restErr
 	}
 
-	if authorType != entity.UserTypeMaster && comment.AuthorID != authorID {
+	if requestorType != entity.UserTypeMaster && comment.AuthorID != requestorID {
 		return ierr.NewForbiddenError("you do not have permission to delete this comment")
 	}
 

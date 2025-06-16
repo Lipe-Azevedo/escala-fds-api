@@ -3,7 +3,7 @@ package main
 import (
 	"escala-fds-api/internal/comment"
 	"escala-fds-api/internal/holiday"
-	"escala-fds-api/internal/plataform/database" 
+	"escala-fds-api/internal/plataform/database"
 	"escala-fds-api/internal/swap"
 	"escala-fds-api/internal/user"
 	"fmt"
@@ -37,7 +37,7 @@ func main() {
 
 	// Services
 	userService := user.NewService(userRepo)
-	swapService := swap.NewService(swapRepo, userRepo)
+	swapService := swap.NewService(swapRepo, userRepo, holidayRepo)
 	commentService := comment.NewService(commentRepo, userRepo)
 	holidayService := holiday.NewService(holidayRepo)
 
