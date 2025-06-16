@@ -67,7 +67,7 @@ func (h *Handler) Create(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, ToResponse(newCert))
+	c.JSON(http.StatusCreated, newCert)
 }
 
 func (h *Handler) UpdateStatus(c *gin.Context) {
@@ -101,7 +101,7 @@ func (h *Handler) UpdateStatus(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, ToResponse(updatedCert))
+	c.JSON(http.StatusOK, updatedCert)
 }
 
 func (h *Handler) FindAll(c *gin.Context) {
@@ -121,11 +121,7 @@ func (h *Handler) FindAll(c *gin.Context) {
 		return
 	}
 
-	var response []CertificateResponse
-	for _, cert := range certs {
-		response = append(response, ToResponse(&cert))
-	}
-	c.JSON(http.StatusOK, response)
+	c.JSON(http.StatusOK, certs)
 }
 
 func (h *Handler) FindByUser(c *gin.Context) {
@@ -144,9 +140,5 @@ func (h *Handler) FindByUser(c *gin.Context) {
 		return
 	}
 
-	var response []CertificateResponse
-	for _, cert := range certs {
-		response = append(response, ToResponse(&cert))
-	}
-	c.JSON(http.StatusOK, response)
+	c.JSON(http.StatusOK, certs)
 }

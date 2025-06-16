@@ -56,7 +56,6 @@ type User struct {
 	WeekdayOff        WeekdayName    `gorm:"type:varchar(20)"`
 	InitialWeekendOff WeekendDayName `gorm:"type:varchar(20)"`
 	SuperiorID        *uint          `gorm:"index"`
-	Superior          *User          `gorm:"foreignKey:SuperiorID"`
 }
 
 func (u *User) HashPassword() error {

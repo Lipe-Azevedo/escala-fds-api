@@ -1,6 +1,7 @@
 package comment
 
 import (
+	"escala-fds-api/internal/constants"
 	"escala-fds-api/internal/entity"
 	"escala-fds-api/internal/user"
 	"escala-fds-api/pkg/ierr"
@@ -10,10 +11,10 @@ import (
 )
 
 type Service interface {
-	CreateComment(comment entity.Comment, authorID uint, authorType entity.UserType) (*entity.Comment, *ierr.RestErr)
-	FindCommentByID(id uint) (*entity.Comment, *ierr.RestErr)
-	FindComments(requestorID uint, requestorType entity.UserType, filters Filters) ([]entity.Comment, *ierr.RestErr)
-	UpdateComment(id uint, text string, authorID uint) (*entity.Comment, *ierr.RestErr)
+	CreateComment(comment entity.Comment, authorID uint, authorType entity.UserType) (*CommentResponse, *ierr.RestErr)
+	FindCommentByID(id uint) (*CommentResponse, *ierr.RestErr)
+	FindComments(requestorID uint, requestorType entity.UserType, filters Filters) ([]CommentResponse, *ierr.RestErr)
+	UpdateComment(id uint, text string, authorID uint) (*CommentResponse, *ierr.RestErr)
 	DeleteComment(id uint, requestorID uint, requestorType entity.UserType) *ierr.RestErr
 }
 
@@ -26,7 +27,7 @@ func NewService(commentRepo Repository, userRepo user.Repository) Service {
 	return &service{commentRepo: commentRepo, userRepo: userRepo}
 }
 
-func (s *service) CreateComment(comment entity.Comment, authorID uint, authorType entity.UserType) (*entity.Comment, *ierr.RestErr) {
+func (s *service) CreateComment(comment entity.Comment, authorID uint, authorType entity.UserType) (*CommentResponse, *ierr.RestErr) {
 	author, err := s.userRepo.FindUserByID(authorID)
 	if err != nil {
 		return nil, ierr.NewBadRequestError("author not found")
@@ -47,15 +48,32 @@ func (s *service) CreateComment(comment entity.Comment, authorID uint, authorTyp
 		return nil, ierr.NewInternalServerError("error creating comment")
 	}
 
-	newComment, err := s.commentRepo.FindCommentByID(comment.ID)
-	if err != nil {
-		return nil, ierr.NewInternalServerError("error fetching newly created comment")
-	}
-
-	return newComment, nil
+	return s.toCommentResponse(&comment, collaborator, author)
 }
 
-func (s *service) FindComments(requestorID uint, requestorType entity.UserType, filters Filters) ([]entity.Comment, *ierr.RestErr) {
+func (s *service) FindCommentByID(id uint) (*CommentResponse, *ierr.RestErr) {
+	comment, err := s.commentRepo.FindCommentByID(id)
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, ierr.NewNotFoundError("comment not found")
+		}
+		return nil, ierr.NewInternalServerError("error finding comment")
+	}
+
+	collaborator, err := s.userRepo.FindUserByID(comment.CollaboratorID)
+	if err != nil {
+		return nil, ierr.NewInternalServerError("collaborator user not found")
+	}
+
+	author, err := s.userRepo.FindUserByID(comment.AuthorID)
+	if err != nil {
+		return nil, ierr.NewInternalServerError("author user not found")
+	}
+
+	return s.toCommentResponse(comment, collaborator, author)
+}
+
+func (s *service) FindComments(requestorID uint, requestorType entity.UserType, filters Filters) ([]CommentResponse, *ierr.RestErr) {
 	if requestorType == entity.UserTypeCollaborator {
 		filters.CollaboratorID = strconv.FormatUint(uint64(requestorID), 10)
 		filters.Team = ""
@@ -66,24 +84,17 @@ func (s *service) FindComments(requestorID uint, requestorType entity.UserType, 
 	if err != nil {
 		return nil, ierr.NewInternalServerError("error finding comments")
 	}
-	return comments, nil
+
+	return s.buildCommentResponseList(comments)
 }
 
-func (s *service) FindCommentByID(id uint) (*entity.Comment, *ierr.RestErr) {
+func (s *service) UpdateComment(id uint, text string, authorID uint) (*CommentResponse, *ierr.RestErr) {
 	comment, err := s.commentRepo.FindCommentByID(id)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, ierr.NewNotFoundError("comment not found")
 		}
-		return nil, ierr.NewInternalServerError("error finding comment")
-	}
-	return comment, nil
-}
-
-func (s *service) UpdateComment(id uint, text string, authorID uint) (*entity.Comment, *ierr.RestErr) {
-	comment, restErr := s.FindCommentByID(id)
-	if restErr != nil {
-		return nil, restErr
+		return nil, ierr.NewInternalServerError("error updating comment")
 	}
 
 	if comment.AuthorID != authorID {
@@ -94,13 +105,17 @@ func (s *service) UpdateComment(id uint, text string, authorID uint) (*entity.Co
 	if err := s.commentRepo.UpdateComment(comment); err != nil {
 		return nil, ierr.NewInternalServerError("error updating comment")
 	}
-	return comment, nil
+
+	return s.FindCommentByID(id)
 }
 
 func (s *service) DeleteComment(id uint, requestorID uint, requestorType entity.UserType) *ierr.RestErr {
-	comment, restErr := s.FindCommentByID(id)
-	if restErr != nil {
-		return restErr
+	comment, err := s.commentRepo.FindCommentByID(id)
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return ierr.NewNotFoundError("comment not found")
+		}
+		return ierr.NewInternalServerError("error finding comment")
 	}
 
 	if requestorType != entity.UserTypeMaster && comment.AuthorID != requestorID {
@@ -111,4 +126,54 @@ func (s *service) DeleteComment(id uint, requestorID uint, requestorType entity.
 		return ierr.NewInternalServerError("error deleting comment")
 	}
 	return nil
+}
+
+func (s *service) buildCommentResponseList(comments []entity.Comment) ([]CommentResponse, *ierr.RestErr) {
+	var userIDs []uint
+	userIDsSet := make(map[uint]bool)
+
+	for _, c := range comments {
+		if !userIDsSet[c.CollaboratorID] {
+			userIDs = append(userIDs, c.CollaboratorID)
+			userIDsSet[c.CollaboratorID] = true
+		}
+		if !userIDsSet[c.AuthorID] {
+			userIDs = append(userIDs, c.AuthorID)
+			userIDsSet[c.AuthorID] = true
+		}
+	}
+
+	users, err := s.userRepo.FindUsersByIDs(userIDs)
+	if err != nil {
+		return nil, ierr.NewInternalServerError("error fetching user data for comments")
+	}
+
+	userMap := make(map[uint]*entity.User)
+	for i := range users {
+		userMap[users[i].ID] = &users[i]
+	}
+
+	var responses []CommentResponse
+	for _, c := range comments {
+		collaborator := userMap[c.CollaboratorID]
+		author := userMap[c.AuthorID]
+		if collaborator != nil && author != nil {
+			resp, _ := s.toCommentResponse(&c, collaborator, author)
+			responses = append(responses, *resp)
+		}
+	}
+	return responses, nil
+}
+
+func (s *service) toCommentResponse(comment *entity.Comment, collaborator, author *entity.User) (*CommentResponse, *ierr.RestErr) {
+	response := &CommentResponse{
+		ID:           comment.ID,
+		Collaborator: user.ToUserResponse(collaborator),
+		Author:       user.ToUserResponse(author),
+		Text:         comment.Text,
+		Date:         comment.Date.Format(constants.ApiDateLayout),
+		CreatedAt:    comment.CreatedAt.Format(constants.ApiTimestampLayout),
+		UpdatedAt:    comment.UpdatedAt.Format(constants.ApiTimestampLayout),
+	}
+	return response, nil
 }

@@ -1,19 +1,9 @@
 package swap
 
 import (
-	"escala-fds-api/internal/constants"
 	"escala-fds-api/internal/entity"
 	"escala-fds-api/internal/user"
-	"time"
 )
-
-func formatTimePointer(t *time.Time) *string {
-	if t == nil {
-		return nil
-	}
-	formatted := t.Format(constants.ApiTimestampLayout)
-	return &formatted
-}
 
 type CreateSwapRequest struct {
 	InvolvedCollaboratorID *uint            `json:"involvedCollaboratorId"`
@@ -41,33 +31,4 @@ type SwapResponse struct {
 	ApprovedBy           *user.UserResponse `json:"approvedBy,omitempty"`
 	CreatedAt            string             `json:"createdAt"`
 	ApprovedAt           *string            `json:"approvedAt,omitempty"`
-}
-
-func ToSwapResponse(swap *entity.Swap) SwapResponse {
-	var involved *user.UserResponse
-	if swap.InvolvedCollaborator != nil {
-		res := user.ToUserResponse(swap.InvolvedCollaborator)
-		involved = &res
-	}
-
-	var approvedBy *user.UserResponse
-	if swap.ApprovedBy != nil {
-		res := user.ToUserResponse(swap.ApprovedBy)
-		approvedBy = &res
-	}
-
-	return SwapResponse{
-		ID:                   swap.ID,
-		Requester:            user.ToUserResponse(&swap.Requester),
-		InvolvedCollaborator: involved,
-		OriginalDate:         swap.OriginalDate.Format(constants.ApiDateLayout),
-		NewDate:              swap.NewDate.Format(constants.ApiDateLayout),
-		OriginalShift:        swap.OriginalShift,
-		NewShift:             swap.NewShift,
-		Reason:               swap.Reason,
-		Status:               swap.Status,
-		ApprovedBy:           approvedBy,
-		CreatedAt:            swap.CreatedAt.Format(constants.ApiTimestampLayout),
-		ApprovedAt:           formatTimePointer(swap.ApprovedAt),
-	}
 }

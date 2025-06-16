@@ -1,6 +1,7 @@
 package swap
 
 import (
+	"escala-fds-api/internal/constants"
 	"escala-fds-api/internal/entity"
 	"escala-fds-api/internal/holiday"
 	"escala-fds-api/internal/user"
@@ -12,11 +13,11 @@ import (
 )
 
 type Service interface {
-	CreateSwap(swap entity.Swap, requesterID uint, requesterType entity.UserType) (*entity.Swap, *ierr.RestErr)
-	ApproveOrRejectSwap(swapID, approverID uint, newStatus entity.SwapStatus) (*entity.Swap, *ierr.RestErr)
-	FindSwapByID(id uint) (*entity.Swap, *ierr.RestErr)
-	FindSwapsForUser(userID uint, statusFilter string) ([]entity.Swap, *ierr.RestErr)
-	FindAllSwaps() ([]entity.Swap, *ierr.RestErr)
+	CreateSwap(swap entity.Swap, requesterID uint, requesterType entity.UserType) (*SwapResponse, *ierr.RestErr)
+	ApproveOrRejectSwap(swapID, approverID uint, newStatus entity.SwapStatus) (*SwapResponse, *ierr.RestErr)
+	FindSwapByID(id uint) (*SwapResponse, *ierr.RestErr)
+	FindSwapsForUser(userID uint, statusFilter string) ([]SwapResponse, *ierr.RestErr)
+	FindAllSwaps() ([]SwapResponse, *ierr.RestErr)
 	DeleteSwap(id, requesterID uint, requesterType entity.UserType) *ierr.RestErr
 }
 
@@ -34,16 +35,7 @@ func NewService(swapRepo Repository, userRepo user.Repository, holidayRepo holid
 	}
 }
 
-var shiftTimings = map[entity.ShiftName]struct {
-	start time.Duration
-	end   time.Duration
-}{
-	entity.ShiftMorning:   {start: 6 * time.Hour, end: 14 * time.Hour},
-	entity.ShiftAfternoon: {start: 14 * time.Hour, end: 22 * time.Hour},
-	entity.ShiftNight:     {start: 22 * time.Hour, end: 30 * time.Hour},
-}
-
-func (s *service) CreateSwap(swap entity.Swap, requesterID uint, requesterType entity.UserType) (*entity.Swap, *ierr.RestErr) {
+func (s *service) CreateSwap(swap entity.Swap, requesterID uint, requesterType entity.UserType) (*SwapResponse, *ierr.RestErr) {
 	swap.RequesterID = requesterID
 
 	if requesterType == entity.UserTypeMaster {
@@ -61,11 +53,197 @@ func (s *service) CreateSwap(swap entity.Swap, requesterID uint, requesterType e
 	if err := s.swapRepo.CreateSwap(&swap); err != nil {
 		return nil, ierr.NewInternalServerError("error creating swap request")
 	}
-	newSwap, err := s.swapRepo.FindSwapByID(swap.ID)
+
+	return s.buildSingleResponse(swap.ID)
+}
+
+func (s *service) ApproveOrRejectSwap(swapID, approverID uint, newStatus entity.SwapStatus) (*SwapResponse, *ierr.RestErr) {
+	swap, err := s.swapRepo.FindSwapByID(swapID)
 	if err != nil {
-		return nil, ierr.NewInternalServerError("error fetching newly created swap")
+		if err == gorm.ErrRecordNotFound {
+			return nil, ierr.NewNotFoundError("swap not found")
+		}
+		return nil, ierr.NewInternalServerError("error finding swap")
 	}
-	return newSwap, nil
+
+	approver, err := s.userRepo.FindUserByID(approverID)
+	if err != nil {
+		return nil, ierr.NewInternalServerError("approver not found")
+	}
+	requester, err := s.userRepo.FindUserByID(swap.RequesterID)
+	if err != nil {
+		return nil, ierr.NewInternalServerError("requester not found")
+	}
+	if approver.UserType != entity.UserTypeMaster && (requester.SuperiorID == nil || *requester.SuperiorID != approverID) {
+		return nil, ierr.NewForbiddenError("you do not have permission to approve this request")
+	}
+
+	swap.Status = newStatus
+	now := time.Now().UTC()
+	if newStatus == entity.StatusApproved {
+		swap.ApprovedAt = &now
+		swap.ApprovedByID = &approverID
+	} else {
+		swap.ApprovedAt = nil
+		swap.ApprovedByID = nil
+	}
+	if err := s.swapRepo.UpdateSwap(swap); err != nil {
+		return nil, ierr.NewInternalServerError(fmt.Sprintf("error updating swap status: %v", err))
+	}
+	return s.buildSingleResponse(swapID)
+}
+
+func (s *service) FindSwapByID(id uint) (*SwapResponse, *ierr.RestErr) {
+	return s.buildSingleResponse(id)
+}
+
+func (s *service) FindSwapsForUser(userID uint, statusFilter string) ([]SwapResponse, *ierr.RestErr) {
+	swaps, err := s.swapRepo.FindSwapsByUserID(userID, statusFilter)
+	if err != nil {
+		return nil, ierr.NewInternalServerError("error fetching swaps for user")
+	}
+	return s.buildResponseList(swaps)
+}
+
+func (s *service) FindAllSwaps() ([]SwapResponse, *ierr.RestErr) {
+	swaps, err := s.swapRepo.FindAllSwaps()
+	if err != nil {
+		return nil, ierr.NewInternalServerError("error fetching all swaps")
+	}
+	return s.buildResponseList(swaps)
+}
+
+func (s *service) DeleteSwap(id, requesterID uint, requesterType entity.UserType) *ierr.RestErr {
+	swap, err := s.swapRepo.FindSwapByID(id)
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return ierr.NewNotFoundError("swap not found")
+		}
+		return ierr.NewInternalServerError("error finding swap")
+	}
+	if requesterType != entity.UserTypeMaster && swap.RequesterID != requesterID {
+		return ierr.NewForbiddenError("you can only delete your own swap requests")
+	}
+
+	if swap.Status == entity.StatusApproved {
+		return ierr.NewForbiddenError("cannot delete an approved swap request")
+	}
+
+	if err := s.swapRepo.DeleteSwap(id); err != nil {
+		return ierr.NewInternalServerError("error deleting swap request")
+	}
+	return nil
+}
+
+func (s *service) buildSingleResponse(id uint) (*SwapResponse, *ierr.RestErr) {
+	swap, err := s.swapRepo.FindSwapByID(id)
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, ierr.NewNotFoundError("swap not found")
+		}
+		return nil, ierr.NewInternalServerError("error fetching swap")
+	}
+
+	list, restErr := s.buildResponseList([]entity.Swap{*swap})
+	if restErr != nil {
+		return nil, restErr
+	}
+	if len(list) == 0 {
+		return nil, ierr.NewNotFoundError("swap response could not be built")
+	}
+	return &list[0], nil
+}
+
+func (s *service) buildResponseList(swaps []entity.Swap) ([]SwapResponse, *ierr.RestErr) {
+	var userIDs []uint
+	userIDsSet := make(map[uint]bool)
+
+	for _, swap := range swaps {
+		if !userIDsSet[swap.RequesterID] {
+			userIDs = append(userIDs, swap.RequesterID)
+			userIDsSet[swap.RequesterID] = true
+		}
+		if swap.InvolvedCollaboratorID != nil && !userIDsSet[*swap.InvolvedCollaboratorID] {
+			userIDs = append(userIDs, *swap.InvolvedCollaboratorID)
+			userIDsSet[*swap.InvolvedCollaboratorID] = true
+		}
+		if swap.ApprovedByID != nil && !userIDsSet[*swap.ApprovedByID] {
+			userIDs = append(userIDs, *swap.ApprovedByID)
+			userIDsSet[*swap.ApprovedByID] = true
+		}
+	}
+
+	users, err := s.userRepo.FindUsersByIDs(userIDs)
+	if err != nil {
+		return nil, ierr.NewInternalServerError("error fetching user data for swaps")
+	}
+
+	userMap := make(map[uint]*entity.User)
+	for i := range users {
+		userMap[users[i].ID] = &users[i]
+	}
+
+	var responses []SwapResponse
+	for _, swap := range swaps {
+		requester := userMap[swap.RequesterID]
+		var involved *entity.User
+		if swap.InvolvedCollaboratorID != nil {
+			involved = userMap[*swap.InvolvedCollaboratorID]
+		}
+		var approver *entity.User
+		if swap.ApprovedByID != nil {
+			approver = userMap[*swap.ApprovedByID]
+		}
+
+		if requester != nil {
+			responses = append(responses, s.toResponse(&swap, requester, involved, approver))
+		}
+	}
+	return responses, nil
+}
+
+func (s *service) toResponse(swap *entity.Swap, requester, involved, approvedBy *entity.User) SwapResponse {
+	var involvedResponse *user.UserResponse
+	if involved != nil {
+		res := user.ToUserResponse(involved)
+		involvedResponse = &res
+	}
+
+	var approvedByResponse *user.UserResponse
+	if approvedBy != nil {
+		res := user.ToUserResponse(approvedBy)
+		approvedByResponse = &res
+	}
+
+	var approvedAt *string
+	if swap.ApprovedAt != nil {
+		formatted := swap.ApprovedAt.Format(constants.ApiTimestampLayout)
+		approvedAt = &formatted
+	}
+
+	return SwapResponse{
+		ID:                   swap.ID,
+		Requester:            user.ToUserResponse(requester),
+		InvolvedCollaborator: involvedResponse,
+		OriginalDate:         swap.OriginalDate.Format(constants.ApiDateLayout),
+		NewDate:              swap.NewDate.Format(constants.ApiDateLayout),
+		OriginalShift:        swap.OriginalShift,
+		NewShift:             swap.NewShift,
+		Reason:               swap.Reason,
+		Status:               swap.Status,
+		ApprovedBy:           approvedByResponse,
+		CreatedAt:            swap.CreatedAt.Format(constants.ApiTimestampLayout),
+		ApprovedAt:           approvedAt,
+	}
+}
+
+var shiftTimings = map[entity.ShiftName]struct {
+	start time.Duration
+	end   time.Duration
+}{
+	entity.ShiftMorning:   {start: 6 * time.Hour, end: 14 * time.Hour},
+	entity.ShiftAfternoon: {start: 14 * time.Hour, end: 22 * time.Hour},
+	entity.ShiftNight:     {start: 22 * time.Hour, end: 30 * time.Hour},
 }
 
 func (s *service) validateSwap(swap *entity.Swap) *ierr.RestErr {
@@ -218,81 +396,4 @@ func isRegularDayOff(date time.Time, user *entity.User) bool {
 		}
 	}
 	return false
-}
-
-func (s *service) ApproveOrRejectSwap(swapID, approverID uint, newStatus entity.SwapStatus) (*entity.Swap, *ierr.RestErr) {
-	swap, restErr := s.FindSwapByID(swapID)
-	if restErr != nil {
-		return nil, restErr
-	}
-	approver, err := s.userRepo.FindUserByID(approverID)
-	if err != nil {
-		return nil, ierr.NewInternalServerError("approver not found")
-	}
-	requester, err := s.userRepo.FindUserByID(swap.RequesterID)
-	if err != nil {
-		return nil, ierr.NewInternalServerError("requester not found")
-	}
-	if approver.UserType != entity.UserTypeMaster && (requester.SuperiorID == nil || *requester.SuperiorID != approverID) {
-		return nil, ierr.NewForbiddenError("you do not have permission to approve this request")
-	}
-	swap.Status = newStatus
-	now := time.Now().UTC()
-	if newStatus == entity.StatusApproved {
-		swap.ApprovedAt = &now
-		swap.ApprovedByID = &approverID
-	} else {
-		swap.ApprovedAt = nil
-		swap.ApprovedByID = nil
-	}
-	if err := s.swapRepo.UpdateSwap(swap); err != nil {
-		return nil, ierr.NewInternalServerError(fmt.Sprintf("error updating swap status: %v", err))
-	}
-	return swap, nil
-}
-
-func (s *service) FindSwapByID(id uint) (*entity.Swap, *ierr.RestErr) {
-	swap, err := s.swapRepo.FindSwapByID(id)
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, ierr.NewNotFoundError("swap not found")
-		}
-		return nil, ierr.NewInternalServerError("error finding swap")
-	}
-	return swap, nil
-}
-
-func (s *service) FindSwapsForUser(userID uint, statusFilter string) ([]entity.Swap, *ierr.RestErr) {
-	swaps, err := s.swapRepo.FindSwapsByUserID(userID, statusFilter)
-	if err != nil {
-		return nil, ierr.NewInternalServerError("error fetching swaps for user")
-	}
-	return swaps, nil
-}
-
-func (s *service) FindAllSwaps() ([]entity.Swap, *ierr.RestErr) {
-	swaps, err := s.swapRepo.FindAllSwaps()
-	if err != nil {
-		return nil, ierr.NewInternalServerError("error fetching all swaps")
-	}
-	return swaps, nil
-}
-
-func (s *service) DeleteSwap(id, requesterID uint, requesterType entity.UserType) *ierr.RestErr {
-	swap, err := s.FindSwapByID(id)
-	if err != nil {
-		return err
-	}
-	if requesterType != entity.UserTypeMaster && swap.RequesterID != requesterID {
-		return ierr.NewForbiddenError("you can only delete your own swap requests")
-	}
-
-	if swap.Status == entity.StatusApproved {
-		return ierr.NewForbiddenError("cannot delete an approved swap request")
-	}
-
-	if err := s.swapRepo.DeleteSwap(id); err != nil {
-		return ierr.NewInternalServerError("error deleting swap request")
-	}
-	return nil
 }

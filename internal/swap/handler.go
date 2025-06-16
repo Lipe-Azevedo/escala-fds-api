@@ -76,7 +76,7 @@ func (h *Handler) Create(c *gin.Context) {
 		c.JSON(errSvc.Code, errSvc)
 		return
 	}
-	c.JSON(http.StatusCreated, ToSwapResponse(newSwap))
+	c.JSON(http.StatusCreated, newSwap)
 }
 
 func (h *Handler) FindAll(c *gin.Context) {
@@ -85,11 +85,7 @@ func (h *Handler) FindAll(c *gin.Context) {
 		c.JSON(err.Code, err)
 		return
 	}
-	var res []SwapResponse
-	for _, swap := range swaps {
-		res = append(res, ToSwapResponse(&swap))
-	}
-	c.JSON(http.StatusOK, res)
+	c.JSON(http.StatusOK, swaps)
 }
 
 func (h *Handler) FindByUser(c *gin.Context) {
@@ -101,11 +97,7 @@ func (h *Handler) FindByUser(c *gin.Context) {
 		c.JSON(err.Code, err)
 		return
 	}
-	var res []SwapResponse
-	for _, swap := range swaps {
-		res = append(res, ToSwapResponse(&swap))
-	}
-	c.JSON(http.StatusOK, res)
+	c.JSON(http.StatusOK, swaps)
 }
 
 func (h *Handler) FindByID(c *gin.Context) {
@@ -115,7 +107,7 @@ func (h *Handler) FindByID(c *gin.Context) {
 		c.JSON(err.Code, err)
 		return
 	}
-	c.JSON(http.StatusOK, ToSwapResponse(swap))
+	c.JSON(http.StatusOK, swap)
 }
 
 func (h *Handler) UpdateStatus(c *gin.Context) {
@@ -135,7 +127,7 @@ func (h *Handler) UpdateStatus(c *gin.Context) {
 		c.JSON(err.Code, err)
 		return
 	}
-	c.JSON(http.StatusOK, ToSwapResponse(updatedSwap))
+	c.JSON(http.StatusOK, updatedSwap)
 }
 
 func (h *Handler) Delete(c *gin.Context) {

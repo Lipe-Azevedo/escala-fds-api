@@ -52,7 +52,7 @@ func (h *Handler) Create(c *gin.Context) {
 
 	date, err := time.ParseInLocation("2006-01-02", req.Date, time.UTC)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, ierr.NewBadRequestError("invalid date format, use YYYY-MM-DD"))
+		c.JSON(http.StatusBadRequest, ierr.NewBadRequestError("invalid date format, use yyyy-MM-dd"))
 		return
 	}
 
@@ -67,7 +67,7 @@ func (h *Handler) Create(c *gin.Context) {
 		c.JSON(errSvc.Code, errSvc)
 		return
 	}
-	c.JSON(http.StatusCreated, ToCommentResponse(newComment))
+	c.JSON(http.StatusCreated, newComment)
 }
 
 func (h *Handler) Find(c *gin.Context) {
@@ -87,11 +87,7 @@ func (h *Handler) Find(c *gin.Context) {
 		c.JSON(err.Code, err)
 		return
 	}
-	var res []CommentResponse
-	for _, comment := range comments {
-		res = append(res, ToCommentResponse(&comment))
-	}
-	c.JSON(http.StatusOK, res)
+	c.JSON(http.StatusOK, comments)
 }
 
 func (h *Handler) FindByID(c *gin.Context) {
@@ -101,7 +97,7 @@ func (h *Handler) FindByID(c *gin.Context) {
 		c.JSON(err.Code, err)
 		return
 	}
-	c.JSON(http.StatusOK, ToCommentResponse(comment))
+	c.JSON(http.StatusOK, comment)
 }
 
 func (h *Handler) Update(c *gin.Context) {
@@ -123,7 +119,7 @@ func (h *Handler) Update(c *gin.Context) {
 		c.JSON(err.Code, err)
 		return
 	}
-	c.JSON(http.StatusOK, ToCommentResponse(updatedComment))
+	c.JSON(http.StatusOK, updatedComment)
 }
 
 func (h *Handler) Delete(c *gin.Context) {

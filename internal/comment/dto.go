@@ -1,8 +1,6 @@
 package comment
 
 import (
-	"escala-fds-api/internal/constants"
-	"escala-fds-api/internal/entity"
 	"escala-fds-api/internal/user"
 )
 
@@ -32,16 +30,4 @@ type Filters struct {
 	CollaboratorID string
 	AuthorID       string
 	Team           string
-}
-
-func ToCommentResponse(comment *entity.Comment) CommentResponse {
-	return CommentResponse{
-		ID:           comment.ID,
-		Collaborator: user.ToUserResponse(&comment.Collaborator),
-		Author:       user.ToUserResponse(&comment.Author),
-		Text:         comment.Text,
-		Date:         comment.Date.Format(constants.ApiDateLayout),
-		CreatedAt:    comment.CreatedAt.Format(constants.ApiTimestampLayout),
-		UpdatedAt:    comment.UpdatedAt.Format(constants.ApiTimestampLayout),
-	}
 }

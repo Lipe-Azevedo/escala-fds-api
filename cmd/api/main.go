@@ -1,6 +1,7 @@
 package main
 
 import (
+	"escala-fds-api/internal/certificate"
 	"escala-fds-api/internal/comment"
 	"escala-fds-api/internal/holiday"
 	"escala-fds-api/internal/plataform/database"
@@ -34,18 +35,21 @@ func main() {
 	swapRepo := swap.NewRepository(db)
 	commentRepo := comment.NewRepository(db)
 	holidayRepo := holiday.NewRepository(db)
+	certificateRepo := certificate.NewRepository(db)
 
 	// Services
 	userService := user.NewService(userRepo)
 	swapService := swap.NewService(swapRepo, userRepo, holidayRepo)
 	commentService := comment.NewService(commentRepo, userRepo)
 	holidayService := holiday.NewService(holidayRepo)
+	certificateService := certificate.NewService(certificateRepo, userRepo)
 
 	// Handlers
 	userHandler := user.NewHandler(userService)
 	swapHandler := swap.NewHandler(swapService)
 	commentHandler := comment.NewHandler(commentService)
 	holidayHandler := holiday.NewHandler(holidayService)
+	certificateHandler := certificate.NewHandler(certificateService)
 
 	// Router
 	router := gin.Default()
@@ -62,6 +66,7 @@ func main() {
 	swapHandler.RegisterRoutes(api)
 	commentHandler.RegisterRoutes(api)
 	holidayHandler.RegisterRoutes(api)
+	certificateHandler.RegisterRoutes(api)
 
 	port := os.Getenv("SERVER_PORT")
 	if port == "" {
