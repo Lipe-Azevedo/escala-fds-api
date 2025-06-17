@@ -57,6 +57,56 @@ func (s *service) CreateSwap(swap entity.Swap, requesterID uint, requesterType e
 	return s.buildSingleResponse(swap.ID)
 }
 
+func (s *service) validateSwap(swap *entity.Swap) *ierr.RestErr {
+	requester, err := s.userRepo.FindUserByID(swap.RequesterID)
+	if err != nil {
+		return ierr.NewBadRequestError("requester not found")
+	}
+
+	// Validação 1: O dia original da troca DEVE ser uma folga para o solicitante.
+	_, isOriginalWorkDay, err := s.getShiftForDay(requester, swap.OriginalDate)
+	if err != nil {
+		return ierr.NewInternalServerError("could not determine schedule for original date")
+	}
+	if isOriginalWorkDay {
+		return ierr.NewBadRequestError("invalid swap: original date is a work day")
+	}
+
+	// Validação 2: O novo dia da troca DEVE ser um dia de trabalho para o solicitante.
+	_, isNewWorkDay, err := s.getShiftForDay(requester, swap.NewDate)
+	if err != nil {
+		return ierr.NewInternalServerError("could not determine schedule for new date")
+	}
+	if !isNewWorkDay {
+		return ierr.NewBadRequestError("invalid swap: new date is already a day off")
+	}
+
+	if swap.InvolvedCollaboratorID != nil {
+		involved, err := s.userRepo.FindUserByID(*swap.InvolvedCollaboratorID)
+		if err != nil {
+			return ierr.NewBadRequestError("involved collaborator not found")
+		}
+		if requester.Team != involved.Team {
+			return ierr.NewBadRequestError("swaps can only occur between members of the same team")
+		}
+	}
+
+	originalIsWeekend := isWeekend(swap.OriginalDate)
+	newIsWeekend := isWeekend(swap.NewDate)
+	if originalIsWeekend != newIsWeekend {
+		return ierr.NewBadRequestError("weekday off can only be swapped for another weekday, and weekend off for another weekend day")
+	}
+
+	if err := s.checkRestInterval(requester, swap); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ... (O restante do arquivo permanece o mesmo, pois a lógica de busca e montagem de resposta não muda)
+// ... (Omitido para brevidade, mas o código completo está abaixo)
+
 func (s *service) ApproveOrRejectSwap(swapID, approverID uint, newStatus entity.SwapStatus) (*SwapResponse, *ierr.RestErr) {
 	swap, err := s.swapRepo.FindSwapByID(swapID)
 	if err != nil {
@@ -160,7 +210,6 @@ func (s *service) buildResponseList(swaps []entity.Swap) ([]SwapResponse, *ierr.
 	for _, swap := range swaps {
 		requester, err := s.userRepo.FindUserByID(swap.RequesterID)
 		if err != nil {
-			// Se o usuário requisitante não for encontrado (ex: deletado), pula esta troca.
 			continue
 		}
 
@@ -223,35 +272,6 @@ var shiftTimings = map[entity.ShiftName]struct {
 	entity.ShiftMorning:   {start: 6 * time.Hour, end: 14 * time.Hour},
 	entity.ShiftAfternoon: {start: 14 * time.Hour, end: 22 * time.Hour},
 	entity.ShiftNight:     {start: 22 * time.Hour, end: 30 * time.Hour},
-}
-
-func (s *service) validateSwap(swap *entity.Swap) *ierr.RestErr {
-	requester, err := s.userRepo.FindUserByID(swap.RequesterID)
-	if err != nil {
-		return ierr.NewBadRequestError("requester not found")
-	}
-
-	if swap.InvolvedCollaboratorID != nil {
-		involved, err := s.userRepo.FindUserByID(*swap.InvolvedCollaboratorID)
-		if err != nil {
-			return ierr.NewBadRequestError("involved collaborator not found")
-		}
-		if requester.Team != involved.Team {
-			return ierr.NewBadRequestError("swaps can only occur between members of the same team")
-		}
-	}
-
-	originalIsWeekend := isWeekend(swap.OriginalDate)
-	newIsWeekend := isWeekend(swap.NewDate)
-	if originalIsWeekend != newIsWeekend {
-		return ierr.NewBadRequestError("weekday off can only be swapped for another weekday, and weekend off for another weekend day")
-	}
-
-	if err := s.checkRestInterval(requester, swap); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (s *service) checkRestInterval(user *entity.User, swap *entity.Swap) *ierr.RestErr {
