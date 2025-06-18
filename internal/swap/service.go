@@ -63,24 +63,7 @@ func (s *service) validateSwap(swap *entity.Swap) *ierr.RestErr {
 		return ierr.NewBadRequestError("requester not found")
 	}
 
-	// Validação 1: O dia original da troca DEVE ser uma folga para o solicitante.
-	_, isOriginalWorkDay, err := s.getShiftForDay(requester, swap.OriginalDate)
-	if err != nil {
-		return ierr.NewInternalServerError("could not determine schedule for original date")
-	}
-	if isOriginalWorkDay {
-		return ierr.NewBadRequestError("invalid swap: original date is a work day")
-	}
-
-	// Validação 2: O novo dia da troca DEVE ser um dia de trabalho para o solicitante.
-	_, isNewWorkDay, err := s.getShiftForDay(requester, swap.NewDate)
-	if err != nil {
-		return ierr.NewInternalServerError("could not determine schedule for new date")
-	}
-	if !isNewWorkDay {
-		return ierr.NewBadRequestError("invalid swap: new date is already a day off")
-	}
-
+	// Validações gerais que se aplicam a todos os cenários
 	if swap.InvolvedCollaboratorID != nil {
 		involved, err := s.userRepo.FindUserByID(*swap.InvolvedCollaboratorID)
 		if err != nil {
@@ -91,21 +74,14 @@ func (s *service) validateSwap(swap *entity.Swap) *ierr.RestErr {
 		}
 	}
 
-	originalIsWeekend := isWeekend(swap.OriginalDate)
-	newIsWeekend := isWeekend(swap.NewDate)
-	if originalIsWeekend != newIsWeekend {
-		return ierr.NewBadRequestError("weekday off can only be swapped for another weekday, and weekend off for another weekend day")
-	}
-
+	// A regra principal e única é a verificação do intervalo de descanso.
+	// Esta função já verifica o dia anterior e o dia posterior ao novo turno.
 	if err := s.checkRestInterval(requester, swap); err != nil {
 		return err
 	}
 
 	return nil
 }
-
-// ... (O restante do arquivo permanece o mesmo, pois a lógica de busca e montagem de resposta não muda)
-// ... (Omitido para brevidade, mas o código completo está abaixo)
 
 func (s *service) ApproveOrRejectSwap(swapID, approverID uint, newStatus entity.SwapStatus) (*SwapResponse, *ierr.RestErr) {
 	swap, err := s.swapRepo.FindSwapByID(swapID)
@@ -115,7 +91,6 @@ func (s *service) ApproveOrRejectSwap(swapID, approverID uint, newStatus entity.
 		}
 		return nil, ierr.NewInternalServerError("error finding swap")
 	}
-
 	approver, err := s.userRepo.FindUserByID(approverID)
 	if err != nil {
 		return nil, ierr.NewInternalServerError("approver not found")
@@ -127,7 +102,6 @@ func (s *service) ApproveOrRejectSwap(swapID, approverID uint, newStatus entity.
 	if approver.UserType != entity.UserTypeMaster && (requester.SuperiorID == nil || *requester.SuperiorID != approverID) {
 		return nil, ierr.NewForbiddenError("you do not have permission to approve this request")
 	}
-
 	swap.Status = newStatus
 	now := time.Now().UTC()
 	if newStatus == entity.StatusApproved {
@@ -174,11 +148,9 @@ func (s *service) DeleteSwap(id, requesterID uint, requesterType entity.UserType
 	if requesterType != entity.UserTypeMaster && swap.RequesterID != requesterID {
 		return ierr.NewForbiddenError("you can only delete your own swap requests")
 	}
-
 	if swap.Status == entity.StatusApproved {
 		return ierr.NewForbiddenError("cannot delete an approved swap request")
 	}
-
 	if err := s.swapRepo.DeleteSwap(id); err != nil {
 		return ierr.NewInternalServerError("error deleting swap request")
 	}
@@ -193,7 +165,6 @@ func (s *service) buildSingleResponse(id uint) (*SwapResponse, *ierr.RestErr) {
 		}
 		return nil, ierr.NewInternalServerError("error fetching swap")
 	}
-
 	list, restErr := s.buildResponseList([]entity.Swap{*swap})
 	if restErr != nil {
 		return nil, restErr
@@ -206,27 +177,22 @@ func (s *service) buildSingleResponse(id uint) (*SwapResponse, *ierr.RestErr) {
 
 func (s *service) buildResponseList(swaps []entity.Swap) ([]SwapResponse, *ierr.RestErr) {
 	var responses []SwapResponse
-
 	for _, swap := range swaps {
 		requester, err := s.userRepo.FindUserByID(swap.RequesterID)
 		if err != nil {
 			continue
 		}
-
 		var involved *entity.User
 		if swap.InvolvedCollaboratorID != nil {
 			involved, _ = s.userRepo.FindUserByID(*swap.InvolvedCollaboratorID)
 		}
-
 		var approver *entity.User
 		if swap.ApprovedByID != nil {
 			approver, _ = s.userRepo.FindUserByID(*swap.ApprovedByID)
 		}
-
 		response := s.toResponse(&swap, requester, involved, approver)
 		responses = append(responses, response)
 	}
-
 	return responses, nil
 }
 
@@ -236,19 +202,16 @@ func (s *service) toResponse(swap *entity.Swap, requester, involved, approvedBy 
 		res := user.ToUserResponse(involved)
 		involvedResponse = &res
 	}
-
 	var approvedByResponse *user.UserResponse
 	if approvedBy != nil {
 		res := user.ToUserResponse(approvedBy)
 		approvedByResponse = &res
 	}
-
 	var approvedAt *string
 	if swap.ApprovedAt != nil {
 		formatted := swap.ApprovedAt.Format(constants.ApiTimestampLayout)
 		approvedAt = &formatted
 	}
-
 	return SwapResponse{
 		ID:                   swap.ID,
 		Requester:            user.ToUserResponse(requester),
@@ -277,7 +240,6 @@ var shiftTimings = map[entity.ShiftName]struct {
 func (s *service) checkRestInterval(user *entity.User, swap *entity.Swap) *ierr.RestErr {
 	dayBefore := swap.NewDate.AddDate(0, 0, -1)
 	dayAfter := swap.NewDate.AddDate(0, 0, 1)
-
 	shiftBefore, isWorkDayBefore, err := s.getShiftForDay(user, dayBefore)
 	if err != nil {
 		return ierr.NewInternalServerError("could not determine schedule for previous day")
@@ -289,7 +251,6 @@ func (s *service) checkRestInterval(user *entity.User, swap *entity.Swap) *ierr.
 			return ierr.NewBadRequestError("the proposed swap violates the minimum 11-hour rest interval with the previous day's shift")
 		}
 	}
-
 	shiftAfter, isWorkDayAfter, err := s.getShiftForDay(user, dayAfter)
 	if err != nil {
 		return ierr.NewInternalServerError("could not determine schedule for next day")
@@ -315,7 +276,6 @@ func (s *service) getShiftForDay(u *entity.User, date time.Time) (entity.ShiftNa
 			isSameOriginalDate := swap.OriginalDate.Year() == date.Year() && swap.OriginalDate.YearDay() == date.YearDay()
 			isRequester := swap.RequesterID == u.ID
 			isInvolved := swap.InvolvedCollaboratorID != nil && *swap.InvolvedCollaboratorID == u.ID
-
 			if isSameNewDate && isRequester {
 				return "", false, nil
 			}
@@ -330,7 +290,6 @@ func (s *service) getShiftForDay(u *entity.User, date time.Time) (entity.ShiftNa
 			}
 		}
 	}
-
 	isHoliday, err := s.holidayRepo.IsHoliday(date)
 	if err != nil {
 		return "", false, err
@@ -338,11 +297,9 @@ func (s *service) getShiftForDay(u *entity.User, date time.Time) (entity.ShiftNa
 	if isHoliday {
 		return "", false, nil
 	}
-
 	if isRegularDayOff(date, u) {
 		return "", false, nil
 	}
-
 	return u.Shift, true, nil
 }
 
@@ -362,7 +319,6 @@ func isRegularDayOff(date time.Time, user *entity.User) bool {
 	if user.WeekdayOff == weekdayMap[date.Weekday()] {
 		return true
 	}
-
 	if date.Weekday() == time.Saturday || date.Weekday() == time.Sunday {
 		if user.InitialWeekendOff == "" {
 			return false
