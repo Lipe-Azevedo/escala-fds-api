@@ -1,6 +1,8 @@
 package entity
 
 import (
+	"time"
+
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
@@ -28,18 +30,17 @@ const (
 	PositionAttendant    PositionName = "Attendant"
 	PositionMaster       PositionName = "Master"
 
-	ShiftMorning   ShiftName = "06:00-14:00"
-	ShiftAfternoon ShiftName = "14:00-22:00"
-	ShiftNight     ShiftName = "22:00-06:00"
+	ShiftMorning   ShiftName   = "06:00-14:00"
+	ShiftAfternoon ShiftName   = "14:00-22:00"
+	ShiftNight     ShiftName   = "22:00-06:00"
+	WeekdayMonday  WeekdayName = "monday"
 
-	WeekdayMonday    WeekdayName = "monday"
-	WeekdayTuesday   WeekdayName = "tuesday"
-	WeekdayWednesday WeekdayName = "wednesday"
-	WeekdayThursday  WeekdayName = "thursday"
-	WeekdayFriday    WeekdayName = "friday"
-
-	WeekendSaturday WeekendDayName = "saturday"
-	WeekendSunday   WeekendDayName = "sunday"
+	WeekdayTuesday   WeekdayName    = "tuesday"
+	WeekdayWednesday WeekdayName    = "wednesday"
+	WeekdayThursday  WeekdayName    = "thursday"
+	WeekdayFriday    WeekdayName    = "friday"
+	WeekendSaturday  WeekendDayName = "saturday"
+	WeekendSunday    WeekendDayName = "sunday"
 )
 
 type User struct {
@@ -48,7 +49,8 @@ type User struct {
 	Password          string         `gorm:"type:varchar(255);not null"`
 	FirstName         string         `gorm:"type:varchar(50);not null"`
 	LastName          string         `gorm:"type:varchar(50);not null"`
-	PhoneNumber       string         `gorm:"type:varchar(20):not null"`
+	PhoneNumber       string         `gorm:"type:varchar(20);not null"`
+	Birthday          *time.Time     `gorm:"type:date"`
 	UserType          UserType       `gorm:"type:varchar(20);not null"`
 	Team              TeamName       `gorm:"type:varchar(50)"`
 	Position          PositionName   `gorm:"type:varchar(50)"`

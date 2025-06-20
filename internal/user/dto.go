@@ -11,6 +11,7 @@ type CreateUserRequest struct {
 	FirstName         string                `json:"firstName" binding:"required"`
 	LastName          string                `json:"lastName" binding:"required"`
 	PhoneNumber       string                `json:"phoneNumber" binding:"required"`
+	Birthday          string                `json:"birthday,omitempty"`
 	UserType          entity.UserType       `json:"userType" binding:"required"`
 	Team              entity.TeamName       `json:"team"`
 	Position          entity.PositionName   `json:"position"`
@@ -24,6 +25,7 @@ type UpdatePersonalDataRequest struct {
 	FirstName   string `json:"firstName"`
 	LastName    string `json:"lastName"`
 	PhoneNumber string `json:"phoneNumber"`
+	Birthday    string `json:"birthday,omitempty"`
 	Password    string `json:"password" binding:"omitempty,min=6"`
 }
 
@@ -47,6 +49,7 @@ type UserResponse struct {
 	FirstName         string                `json:"firstName"`
 	LastName          string                `json:"lastName"`
 	PhoneNumber       string                `json:"phoneNumber"`
+	Birthday          string                `json:"birthday,omitempty"`
 	UserType          entity.UserType       `json:"userType"`
 	Team              entity.TeamName       `json:"team,omitempty"`
 	Position          entity.PositionName   `json:"position,omitempty"`
@@ -64,12 +67,18 @@ type LoginResponse struct {
 }
 
 func ToUserResponse(user *entity.User) UserResponse {
+	var birthday string
+	if user.Birthday != nil {
+		birthday = user.Birthday.Format(constants.ApiDateLayout)
+	}
+
 	return UserResponse{
 		ID:                user.ID,
 		Email:             user.Email,
 		FirstName:         user.FirstName,
 		LastName:          user.LastName,
 		PhoneNumber:       user.PhoneNumber,
+		Birthday:          birthday,
 		UserType:          user.UserType,
 		Team:              user.Team,
 		Position:          user.Position,
